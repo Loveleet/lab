@@ -47,7 +47,7 @@ jobs:
         env:
           # Build-time default: use secret (cloud URL) so first load works; runtime also reads api-config.json
           VITE_API_BASE_URL: ${{ secrets.API_BASE_URL || '' }}
-          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+          VITE_BASE_PATH: /
         run: |
           npm ci
           npm run build
