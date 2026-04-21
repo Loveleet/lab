@@ -1,0 +1,78 @@
+# Deploy ONLY the frontend to GitHub Pages on push. No "github-pages" environment needed.
+# One-time: Settings → Pages → Source: "Deploy from a branch" → Branch: gh-pages → / (root).
+# Optional secret: API_BASE_URL (default: your cloud API).
+
+name: Deploy frontend to GitHub Pages
+
+on:
+  push:
+    branches: [main, lab_live]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Write api-config.json for GitHub Pages runtime
+        run: |
+          # API_BASE_URL secret = fixed backend URL (cloud IP or domain, e.g. http://150.241.244.130:10000)
+          API_URL="${{ secrets.API_BASE_URL }}"
+          API_URL="${API_URL%/}"
+          if [ -n "$API_URL" ]; then
+            echo "{\"apiBaseUrl\": \"$API_URL\", \"tunnelUrl\": \"$API_URL\"}" > public/api-config.json
+            echo "Wrote api-config.json with API_BASE_URL"
+          else
+            echo "{}" > public/api-config.json
+            echo "No API_BASE_URL secret — set it to your cloud URL (e.g. http://150.241.244.130:10000) for GitHub Pages to show data"
+          fi
+          cat public/api-config.json
+
+      - name: Install and build
+        env:
+          # Build-time default: use secret (cloud URL) so first load works; runtime also reads api-config.json
+          VITE_API_BASE_URL: ${{ secrets.API_BASE_URL || '' }}
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
+        run: |
+          npm ci
+          npm run build
+
+      # App runs at /repo-name/ and fetches /repo-name/api-config.json; Vite puts public at dist root, so copy into base path
+      - name: Place api-config.json under base path for GitHub Pages
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          if [ -f "dist/api-config.json" ]; then
+            cp "dist/api-config.json" "dist/$REPO_NAME/api-config.json"
+            echo "api-config.json available at /$REPO_NAME/api-config.json"
+          fi
+
+      # SPA fallback: GitHub Pages serves 404.html from site root for any missing path. Copy app index to dist/404.html so /repo-name/chart-grid loads the SPA (asset paths in index are absolute under repo base).
+      - name: Add 404.html SPA fallback for client routes
+        run: |
+          REPO_NAME="${{ github.event.repository.name }}"
+          if [ -f "dist/$REPO_NAME/index.html" ]; then
+            cp "dist/$REPO_NAME/index.html" "dist/404.html"
+            echo "404.html at repo root so .../$REPO_NAME/chart-grid (and other routes) load the SPA"
+          fi
+
+      - name: Deploy to GitHub Pages (gh-pages branch)
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true

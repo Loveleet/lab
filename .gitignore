@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+server/node_modules/
+server/mcp-server/node_modules/
+
+# Build
+dist/
+
+# Env and secrets (do not commit)
+.env
+.env.*
+.env.example
+.env.deploy.example
+.env.development.example
+env.*
+env.example
+env.deploy.example
+env.development.example
+secrets.env
+secrets.env.example
+*.env
+*.env.*
+
+# Server with credentials — only on cloud; repo has server.example.js
+server/server*.js
+!server/server.example.js
+# Python keys and DB credentials (do not commit; use *.example.py as template)
+python/utils/keys*.py
+!python/utils/keys1.example.py
+!python/utils/keys1_postgresql.example.py
+# test
+# IDE / OS
+.DS_Store
+*.log
+logs_error/
+scripts/
+python/
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+
+# Python
+_pycache_/
+*.pyc
+*.pyo
+
+# Local
+venv/
+.venv/
