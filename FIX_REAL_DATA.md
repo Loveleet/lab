@@ -1,8 +1,8 @@
 # Fix: Show real data on the cloud
 
 **Credentials (same as Render / server copy.js):**
-- **Cloud Ubuntu** (150.241.244.130) SSH: `DEPLOY_PASSWORD` in `.env` (e.g. 9988609709)
-- **DB server** (150.241.245.36) Postgres: `DB_USER=postgres`, `DB_PASSWORD=IndiaNepal1-`, `DB_NAME=labdb2`, `DB_PORT=5432`, no SSL. The scripts set these on the cloud when pointing at the DB server.
+- **Cloud Ubuntu** (150.241.244.130) SSH: `DEPLOY_PASSWORD` in `.env` (set your own server password here)
+- **DB server** (150.241.245.36) Postgres: `DB_USER=postgres`, `DB_PASSWORD=<set-on-server-only>`, `DB_NAME=labdb2`, `DB_PORT=5432`, no SSL. The scripts set these on the cloud when pointing at the DB server.
 
 ---
 

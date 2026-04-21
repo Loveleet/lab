@@ -24,7 +24,7 @@ last_restart_time = 0
 # Database configuration
 DB_CONFIG = {
     'user': 'lab',
-    'password': 'IndiaNepal1-',
+    'password': os.environ.get('PGPASSWORD', ''),
     'host': '127.0.0.1',
     'port': '5432',
     'database': 'labdb2'

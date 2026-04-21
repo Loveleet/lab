@@ -9,7 +9,7 @@ const { Pool } = pkg;
 // DB config: prefer env, fallback to existing server defaults
 const dbConfig = {
   user: process.env.PGUSER || 'lab',
-  password: process.env.PGPASSWORD || 'IndiaNepal1-',
+  password: process.env.PGPASSWORD || '',
   host: process.env.PGHOST || '150.241.244.130',
   port: parseInt(process.env.PGPORT || '5432', 10),
   database: process.env.PGDATABASE || 'olab',
