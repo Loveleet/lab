@@ -7,7 +7,7 @@ name: Deploy to Ubuntu
 
 on:
   push:
-    branches: [main, lab_live]
+    branches: [lab_live]
   workflow_dispatch:
     inputs:
       branch:
