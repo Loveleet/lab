@@ -62,13 +62,18 @@ jobs:
             echo "api-config.json available at /$REPO_NAME/api-config.json"
           fi
 
-      # SPA fallback: GitHub Pages serves 404.html from site root for any missing path. Copy app index to dist/404.html so /repo-name/chart-grid loads the SPA (asset paths in index are absolute under repo base).
+      # SPA fallback: GitHub Pages serves 404.html for unknown paths. Must exist for deep links (e.g. /live-trade-view?uid=...).
       - name: Add 404.html SPA fallback for client routes
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
-          if [ -f "dist/$REPO_NAME/index.html" ]; then
+          if [ -f "dist/index.html" ]; then
+            cp "dist/index.html" "dist/404.html"
+            echo "404.html from dist/index.html (root base / custom domain)"
+          elif [ -f "dist/$REPO_NAME/index.html" ]; then
             cp "dist/$REPO_NAME/index.html" "dist/404.html"
-            echo "404.html at repo root so .../$REPO_NAME/chart-grid (and other routes) load the SPA"
+            echo "404.html from dist/$REPO_NAME/index.html (repo subpath)"
+          else
+            echo "ERROR: no index.html found for 404 fallback" && ls -la dist && exit 1
           fi
 
       - name: Deploy to GitHub Pages (gh-pages branch)
