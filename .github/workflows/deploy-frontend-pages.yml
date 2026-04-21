@@ -57,6 +57,7 @@ jobs:
         run: |
           REPO_NAME="${{ github.event.repository.name }}"
           if [ -f "dist/api-config.json" ]; then
+            mkdir -p "dist/$REPO_NAME"
             cp "dist/api-config.json" "dist/$REPO_NAME/api-config.json"
             echo "api-config.json available at /$REPO_NAME/api-config.json"
           fi
