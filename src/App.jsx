@@ -26,6 +26,25 @@ import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
 
+/** Only these signals appear in the main dashboard filter panel. */
+const DEFAULT_SELECTED_SIGNALS = {
+  "Parent": true,
+  "Child": true,
+  "Advance Live": true,
+  "Live After Skip": true,
+};
+
+function pickAllowedSignals(parsed) {
+  const out = { ...DEFAULT_SELECTED_SIGNALS };
+  if (!parsed || typeof parsed !== "object") return out;
+  Object.keys(DEFAULT_SELECTED_SIGNALS).forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+      out[key] = !!parsed[key];
+    }
+  });
+  return out;
+}
+
 // Animated SVG background for LAB title
 function AnimatedGraphBackground({ width = 400, height = 80, opacity = 0.4 }) {
   // Two lines: green and red
@@ -381,19 +400,12 @@ useEffect(() => {
   }
 }, [toDate]);
 
-  const [selectedSignals, setSelectedSignals] = useState({
-    "2POLE_IN5LOOP": true,
-    "IMACD": true,
-    "2POLE_Direct_Signal": true,
-    "HIGHEST SWING HIGH": true,
-    "LOWEST SWING LOW": true,
-    "NORMAL SWING HIGH": true,
-    "NORMAL SWING LOW": true,
-    "ProGap": true,
-    "CrossOver": true,
-    "Spike": true,
-    "Kicker": true,
-
+  const [selectedSignals, setSelectedSignals] = useState(() => {
+    try {
+      const saved = localStorage.getItem("selectedSignals");
+      if (saved) return pickAllowedSignals(JSON.parse(saved));
+    } catch (_) {}
+    return { ...DEFAULT_SELECTED_SIGNALS };
   });
   const [intervalRadioMode, setIntervalRadioMode] = useState(false);
   const [actionRadioMode, setActionRadioMode] = useState(false);
@@ -1436,22 +1448,9 @@ useEffect(() => {
   const savedMachines = localStorage.getItem("selectedMachines");
 
   if (savedSignals) {
-    const parsed = JSON.parse(savedSignals);
-    const merged = {
-      "2POLE_IN5LOOP": true,
-      "IMACD": true,
-      "2POLE_Direct_Signal": true,
-      "HIGHEST SWING HIGH": true,
-      "LOWEST SWING LOW": true,
-      "NORMAL SWING HIGH": true,
-      "NORMAL SWING LOW": true,
-      "ProGap": true,
-      "CrossOver": true,
-      "Spike": true,
-      "Kicker": true,
-      ...parsed,
-    };
+    const merged = pickAllowedSignals(JSON.parse(savedSignals));
     setSelectedSignals(merged);
+    localStorage.setItem("selectedSignals", JSON.stringify(merged));
     const allSelected = Object.values(merged).every((val) => val === true);
     setSignalToggleAll(!allSelected); // ✅ sync toggle button state
   }
@@ -1533,11 +1532,7 @@ useEffect(() => {
   }, []);
 
   // Defaults for each setting
-  const DEFAULT_SIGNALS = useMemo(() => ({
-    "2POLE_IN5LOOP": true, "IMACD": true, "2POLE_Direct_Signal": true,
-    "HIGHEST SWING HIGH": true, "LOWEST SWING LOW": true, "NORMAL SWING HIGH": true, "NORMAL SWING LOW": true,
-    "ProGap": true, "CrossOver": true, "Spike": true, "Kicker": true,
-  }), []);
+  const DEFAULT_SIGNALS = useMemo(() => ({ ...DEFAULT_SELECTED_SIGNALS }), []);
   const DEFAULT_INTERVALS = useMemo(() => ({ "1m": true, "3m": true, "5m": true, "15m": true, "30m": true, "1h": true, "2h": true, "4h": true }), []);
   const DEFAULT_LIVE_FILTER = useMemo(() => ({ true: true, false: true }), []);
   const DEFAULT_CHART = useMemo(() => ({ layout: 3, showRSI: true, showVolume: true }), []);

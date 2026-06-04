@@ -129,7 +129,8 @@ const ReportDashboard = () => {
 
   // Filter state and logic (moved from PairStatsGrid)
   const canonicalSignalKeys = [
-    "2POLE_IN5LOOP", "IMACD", "2POLE_Direct_Signal", "HIGHEST SWING HIGH", "LOWEST SWING LOW", "NORMAL SWING HIGH", "NORMAL SWING LOW", "ProGap", "CrossOver", "Spike", "Kicker"
+    // "2POLE_IN5LOOP", "IMACD", "2POLE_Direct_Signal", "HIGHEST SWING HIGH", "LOWEST SWING LOW", "NORMAL SWING HIGH", "NORMAL SWING LOW", "ProGap", "CrossOver", "Spike", "Kicker"
+    "Parent", "Child", "Advance Live", "Live After Skip"
   ];
   const [selectedSignals, setSelectedSignals] = useState(() => {
     const saved = localStorage.getItem('pair_stats_selected_signals');
