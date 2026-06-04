@@ -82,3 +82,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./dist
           force_orphan: true
+          # clubinfotech.com DNS A records point at GitHub Pages; CNAME links domain to this site
+          cname: clubinfotech.com
