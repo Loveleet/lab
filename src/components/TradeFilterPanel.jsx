@@ -1,23 +1,8 @@
 import React from "react";
 import moment from "moment";
 
-const signalLabels = {
-  // "2POLE_IN5LOOP": "2P_L",
-  // "IMACD": "IMACD",
-  // "2POLE_Direct_Signal": "2P_DS",
-  // "HIGHEST SWING HIGH": "HSH",
-  // "LOWEST SWING LOW": "LSL",
-  // "NORMAL SWING HIGH": "NSH",
-  // "NORMAL SWING LOW": "NSL",
-  // "ProGap": "PG",
-  // "CrossOver": "CO",
-  // "Spike": "SP",
-  // "Kicker": "Kicker",
-  "Parent":"Parent",
-  "Child":"Child",
-  "Advance Live": "Advance Live",
-  "Live After Skip":"Live After Skip",
-};
+// Optional short labels; unknown signalfrom values from trades display as-is
+const signalLabels = {};
 
 const TradeFilterPanel = ({
   selectedSignals,

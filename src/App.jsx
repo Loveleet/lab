@@ -26,21 +26,30 @@ import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
 
-/** Only these signals appear in the main dashboard filter panel. */
-const DEFAULT_SELECTED_SIGNALS = {
-  "Parent": true,
-  "Child": true,
-  "Advance Live": true,
-  "Live After Skip": true,
-};
+function tradeSignalFrom(trade) {
+  return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
+}
 
-function pickAllowedSignals(parsed) {
-  const out = { ...DEFAULT_SELECTED_SIGNALS };
-  if (!parsed || typeof parsed !== "object") return out;
-  Object.keys(DEFAULT_SELECTED_SIGNALS).forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
-      out[key] = !!parsed[key];
-    }
+function uniqueSortedStrings(values) {
+  return Array.from(new Set(values.filter(Boolean).map(String))).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+  );
+}
+
+function deriveMachinesFromTrades(trades, toMachineKey) {
+  const ids = uniqueSortedStrings(trades.map((t) => toMachineKey(t.machineid)));
+  return ids.map((id) => ({ machineid: id, active: true }));
+}
+
+function deriveSignalsFromTrades(trades) {
+  return uniqueSortedStrings(trades.map(tradeSignalFrom));
+}
+
+/** Keep prior checkbox state; new keys from trades default to checked. */
+function mergeFilterSelections(keys, previous = {}, defaultChecked = true) {
+  const out = {};
+  keys.forEach((key) => {
+    out[key] = Object.prototype.hasOwnProperty.call(previous, key) ? !!previous[key] : defaultChecked;
   });
   return out;
 }
@@ -403,9 +412,9 @@ useEffect(() => {
   const [selectedSignals, setSelectedSignals] = useState(() => {
     try {
       const saved = localStorage.getItem("selectedSignals");
-      if (saved) return pickAllowedSignals(JSON.parse(saved));
+      if (saved) return JSON.parse(saved);
     } catch (_) {}
-    return { ...DEFAULT_SELECTED_SIGNALS };
+    return {};
   });
   const [intervalRadioMode, setIntervalRadioMode] = useState(false);
   const [actionRadioMode, setActionRadioMode] = useState(false);
@@ -500,11 +509,6 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       console.log("[DEBUG] Trades received:", trades.length, "rows");
       setDemoDataHint(tradeJson._meta?.demoData ? tradeJson._meta.hint || null : null);
 
-      const machinesRes = await apiFetch("/api/machines");
-      const machinesJson = machinesRes.ok ? await machinesRes.json() : { machines: [] };
-      const machinesList = Array.isArray(machinesJson.machines) ? machinesJson.machines : [];
-      console.log("[DEBUG] Machines received:", machinesList.length, "machines");
-
       // Use base path so logs.json works on GitHub Pages (e.g. /lab_live/logs.json)
       const logsPath = `${(import.meta.env.BASE_URL || "/").replace(/\/?$/, "/")}logs.json`;
       const logRes = await fetch(logsPath).catch(() => ({ ok: false }));
@@ -572,46 +576,45 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
         setManageAutoPositionSides({ buyActive: true, sellActive: true });
       }
 
-      // Build unified machine list (machines endpoint + trades machine ids)
-      const tradeMachineIds = Array.from(
-        new Set(trades.map(t => toMachineKey(t.machineid)).filter(Boolean))
-      ).map(id => ({ machineid: id, active: true }));
-      const unifiedMachines = [
-        ...machinesList,
-        ...tradeMachineIds.filter(tm => !machinesList.some(m => toMachineKey(m.machineid) === tm.machineid))
-      ];
+      // Machines + signals: unique values from trade rows (no separate /api/machines)
+      const machinesFromTrades = deriveMachinesFromTrades(trades, toMachineKey);
+      const signalKeys = deriveSignalsFromTrades(trades);
 
-      setMachines(unifiedMachines);
+      setMachines(machinesFromTrades);
       setTradeData(trades);
       setLogData(logs);
-      setClientData(unifiedMachines);
-      
+      setClientData(machinesFromTrades);
+
+      setSelectedMachines((prev) => {
+        const merged = mergeFilterSelections(
+          machinesFromTrades.map((m) => toMachineKey(m.machineid)),
+          prev,
+          true
+        );
+        localStorage.setItem("selectedMachines", JSON.stringify(merged));
+        return merged;
+      });
+
+      setSelectedSignals((prev) => {
+        const merged = mergeFilterSelections(signalKeys, prev, true);
+        localStorage.setItem("selectedSignals", JSON.stringify(merged));
+        return merged;
+      });
+
       // Clear CORS error if we got data successfully
       if (corsError && trades.length > 0) {
         console.log("[DEBUG] ✅ CORS error cleared - data loaded successfully");
         setCorsError(false);
       }
 
-      // Preserve user selections: keep previous values; new machines default to true
-      // Always select ALL machines (ignore active status) so every machine’s trades show
-      const allMachinesSelected = unifiedMachines.reduce((acc, machine) => {
-        const key = toMachineKey(machine.machineid);
-        if (key) acc[key] = true;
-        return acc;
-      }, {});
-      setSelectedMachines(allMachinesSelected);
-      localStorage.setItem("selectedMachines", JSON.stringify(allMachinesSelected));
-
-      // Debug: log machine coverage
       const countsByMachine = trades.reduce((acc, t) => {
         const k = toMachineKey(t.machineid) || "unknown";
         acc[k] = (acc[k] || 0) + 1;
         return acc;
       }, {});
-      console.log("[DEBUG] Machines from API:", machinesList.map(m => toMachineKey(m.machineid)));
-      console.log("[DEBUG] Machines from trades:", tradeMachineIds);
+      console.log("[DEBUG] Machines from trades:", machinesFromTrades.map((m) => toMachineKey(m.machineid)));
+      console.log("[DEBUG] Signals from trades:", signalKeys);
       console.log("[DEBUG] Counts by machine from trades:", countsByMachine);
-      console.log("[DEBUG] Selected machines:", allMachinesSelected);
     } catch (error) {
       setTradeData([]);
       setDemoDataHint(null);
@@ -653,7 +656,7 @@ const filteredTradeData = useMemo(() => {
   const baseFiltered = tradeData.filter(trade => {
 
     if (!includeMinClose && trade.min_close === "Min_close") return false;
-    const isSignalSelected = isSelected(selectedSignals, trade.signalfrom);
+    const isSignalSelected = isSelected(selectedSignals, tradeSignalFrom(trade));
     const isMachineSelected = isSelected(selectedMachines, toMachineKey(trade.machineid));
     const isIntervalSelected = isSelected(selectedIntervals, trade.interval);
     const isActionSelected = isSelected(selectedActions, trade.action);
@@ -1444,21 +1447,19 @@ Total_Stats: (
 }, [filteredTradeData, selectedBox, fontSizeLevel]);
 
 useEffect(() => {
-  const savedSignals = localStorage.getItem("selectedSignals");
   const savedMachines = localStorage.getItem("selectedMachines");
-
-  if (savedSignals) {
-    const merged = pickAllowedSignals(JSON.parse(savedSignals));
-    setSelectedSignals(merged);
-    localStorage.setItem("selectedSignals", JSON.stringify(merged));
-    const allSelected = Object.values(merged).every((val) => val === true);
-    setSignalToggleAll(!allSelected); // ✅ sync toggle button state
-  }
-
   if (savedMachines) {
-    setSelectedMachines(JSON.parse(savedMachines));
+    try {
+      setSelectedMachines(JSON.parse(savedMachines));
+    } catch (_) {}
   }
 }, []);
+
+useEffect(() => {
+  if (Object.keys(selectedSignals).length === 0) return;
+  const allSelected = Object.values(selectedSignals).every((val) => val === true);
+  setSignalToggleAll(!allSelected);
+}, [selectedSignals]);
 // Optimized toggle handlers
 const toggleMachine = useCallback((machineId) => {
   setSelectedMachines(prev => {
@@ -1531,8 +1532,6 @@ useEffect(() => {
     return v;
   }, []);
 
-  // Defaults for each setting
-  const DEFAULT_SIGNALS = useMemo(() => ({ ...DEFAULT_SELECTED_SIGNALS }), []);
   const DEFAULT_INTERVALS = useMemo(() => ({ "1m": true, "3m": true, "5m": true, "15m": true, "30m": true, "1h": true, "2h": true, "4h": true }), []);
   const DEFAULT_LIVE_FILTER = useMemo(() => ({ true: true, false: true }), []);
   const DEFAULT_CHART = useMemo(() => ({ layout: 3, showRSI: true, showVolume: true }), []);
