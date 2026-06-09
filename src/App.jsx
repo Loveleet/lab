@@ -30,6 +30,26 @@ function tradeSignalFrom(trade) {
   return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
 }
 
+/** CHILD, CHILD1, CHILD2, … → one filter key "CHILD" */
+function normalizeSignalFrom(raw) {
+  const s = String(raw || "").trim();
+  if (!s) return "";
+  const upper = s.toUpperCase();
+  if (upper === "CHILD" || /^CHILD\d+$/.test(upper)) return "CHILD";
+  return s;
+}
+
+function collapseSignalSelectionMap(previous) {
+  const out = {};
+  Object.entries(previous || {}).forEach(([key, val]) => {
+    const n = normalizeSignalFrom(key);
+    if (!n) return;
+    if (!Object.prototype.hasOwnProperty.call(out, n)) out[n] = !!val;
+    else out[n] = out[n] || !!val;
+  });
+  return out;
+}
+
 function uniqueSortedStrings(values) {
   return Array.from(new Set(values.filter(Boolean).map(String))).sort((a, b) =>
     a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
@@ -42,7 +62,7 @@ function deriveMachinesFromTrades(trades, toMachineKey) {
 }
 
 function deriveSignalsFromTrades(trades) {
-  return uniqueSortedStrings(trades.map(tradeSignalFrom));
+  return uniqueSortedStrings(trades.map((t) => normalizeSignalFrom(tradeSignalFrom(t))));
 }
 
 /** Keep prior checkbox state; new keys from trades default to checked. */
@@ -412,7 +432,7 @@ useEffect(() => {
   const [selectedSignals, setSelectedSignals] = useState(() => {
     try {
       const saved = localStorage.getItem("selectedSignals");
-      if (saved) return JSON.parse(saved);
+      if (saved) return collapseSignalSelectionMap(JSON.parse(saved));
     } catch (_) {}
     return {};
   });
@@ -596,7 +616,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       });
 
       setSelectedSignals((prev) => {
-        const merged = mergeFilterSelections(signalKeys, prev, true);
+        const merged = mergeFilterSelections(signalKeys, collapseSignalSelectionMap(prev), true);
         localStorage.setItem("selectedSignals", JSON.stringify(merged));
         return merged;
       });
@@ -656,7 +676,7 @@ const filteredTradeData = useMemo(() => {
   const baseFiltered = tradeData.filter(trade => {
 
     if (!includeMinClose && trade.min_close === "Min_close") return false;
-    const isSignalSelected = isSelected(selectedSignals, tradeSignalFrom(trade));
+    const isSignalSelected = isSelected(selectedSignals, normalizeSignalFrom(tradeSignalFrom(trade)));
     const isMachineSelected = isSelected(selectedMachines, toMachineKey(trade.machineid));
     const isIntervalSelected = isSelected(selectedIntervals, trade.interval);
     const isActionSelected = isSelected(selectedActions, trade.action);
@@ -839,7 +859,11 @@ const getFilteredForTitle = useMemo(() => {
 
   // Signals list available in current filtered data (for settings UI)
   const availableSignals = useMemo(() => {
-    const set = new Set((Array.isArray(filteredTradeData) ? filteredTradeData : []).map(t => t.signalfrom).filter(Boolean));
+    const set = new Set(
+      (Array.isArray(filteredTradeData) ? filteredTradeData : [])
+        .map((t) => normalizeSignalFrom(tradeSignalFrom(t)))
+        .filter(Boolean)
+    );
     return Array.from(set);
   }, [filteredTradeData]);
 
