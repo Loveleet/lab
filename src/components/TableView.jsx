@@ -130,6 +130,10 @@ const formatTradeData = (trade, index) => ({
     })(),
     Stop_Price: safeFixed(trade.stop_price, 6),
     Save_Price: safeFixed(trade.save_price, 6),
+    PL_Target_Price: safeFixed(
+      trade.pl_target_price ?? trade.Pl_target_price ?? trade.PL_TARGET_PRICE,
+      6
+    ),
     Min_Comm: safeFixed(trade.min_comm, 6),
     "🛡️": parseHedge(trade.hedge) ? "✅ Yes" : "❌ No",
     "🛡️1-1": parseBoolean(trade.hedge_1_1_bool) ? "✅ Yes" : "❌ No",
@@ -1135,7 +1139,7 @@ return (
         )}
         {selectedRow !== null && (() => {
           const selectedData = filteredAndSortedData[selectedRow] || {};
-          const fieldsToDisplay = ["Stop_Price", "Save_Price", "Buy_Price", "Sell_Price"];
+          const fieldsToDisplay = ["Stop_Price", "Save_Price", "Buy_Price", "Sell_Price", "PL_Target_Price"];
           let cleanPair = selectedData.Pair;
           if (typeof cleanPair === "string") {
             cleanPair = cleanPair.replace(/<[^>]+>/g, "");
