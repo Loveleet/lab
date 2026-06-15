@@ -3038,7 +3038,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => clearInterval(id);
   }, [binanceDataRefreshKey]);
 
-  // EMA trends (same as App.jsx: Last Update Time, EMA 1m, 5m, 15m)
+  // EMA trends (Last Update Time, EMA 1m, 5m, 15m, 1h, 4h, 1d from pairstatus)
   useEffect(() => {
     const fetchEmaTrends = async () => {
       try {
@@ -3763,7 +3763,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
           };
           const lastUpdatedDisplay = getTimeAgo(emaTrends.last_updated);
           return (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1 min-w-[280px] mb-3 sm:mb-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 flex-1 min-w-[280px] mb-3 sm:mb-4">
               <EmaCell header="Last Update Time" value={lastUpdatedDisplay ?? "—"} />
               <EmaCell
                 header="EMA 1m"
@@ -3779,6 +3779,21 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                 header="EMA 15m"
                 trendText={emaTrends.overall_ema_trend_15m}
                 pct={emaTrends.overall_ema_trend_percentage_15m}
+              />
+              <EmaCell
+                header="EMA 1h"
+                trendText={emaTrends.overall_ema_trend_1h}
+                pct={emaTrends.overall_ema_trend_percentage_1h}
+              />
+              <EmaCell
+                header="EMA 4h"
+                trendText={emaTrends.overall_ema_trend_4h}
+                pct={emaTrends.overall_ema_trend_percentage_4h}
+              />
+              <EmaCell
+                header="EMA 1d"
+                trendText={emaTrends.overall_ema_trend_1d}
+                pct={emaTrends.overall_ema_trend_percentage_1d}
               />
             </div>
           );

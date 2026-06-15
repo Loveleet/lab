@@ -2746,9 +2746,9 @@ useEffect(() => {
       <SuperTrendPanel data={superTrendData} />
     </div>
 
-    {/* EMA Grid — all 4 aligned: header on top, value below */}
+    {/* EMA Grid — header on top, value below */}
     {emaTrends && (
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 flex-1 min-w-0">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 flex-1 min-w-0">
         {(() => {
           const getTimeAgo = (lastUpdated) => {
             try {
@@ -2844,6 +2844,21 @@ useEffect(() => {
                 header="EMA 15m"
                 trendText={emaTrends.overall_ema_trend_15m}
                 pct={emaTrends.overall_ema_trend_percentage_15m}
+              />
+              <EmaCell
+                header="EMA 1h"
+                trendText={emaTrends.overall_ema_trend_1h}
+                pct={emaTrends.overall_ema_trend_percentage_1h}
+              />
+              <EmaCell
+                header="EMA 4h"
+                trendText={emaTrends.overall_ema_trend_4h}
+                pct={emaTrends.overall_ema_trend_percentage_4h}
+              />
+              <EmaCell
+                header="EMA 1d"
+                trendText={emaTrends.overall_ema_trend_1d}
+                pct={emaTrends.overall_ema_trend_percentage_1d}
               />
             </>
           );
