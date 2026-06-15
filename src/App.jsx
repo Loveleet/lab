@@ -22,6 +22,7 @@ import { checkSession, logoutApi, extendSession, AuthContext } from './auth';
 import GroupViewPage from './pages/GroupViewPage';
 import RefreshControls from './components/RefreshControls';
 import SuperTrendPanel from "./SuperTrendPanel";
+import EmaTrendGrid from "./components/EmaTrendGrid";
 import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
@@ -190,7 +191,6 @@ const App = () => {
 
   const [superTrendData, setSuperTrendData] = useState([]);
   const [emaTrends, setEmaTrends] = useState(null);
-  const [timeAgoTick, setTimeAgoTick] = useState(0); // tick every 1 min to refresh "X min ago" for last_updated
   const [activeLossFlags, setActiveLossFlags] = useState(null);
   const [autoExecuteMode, setAutoExecuteMode] = useState(null); // { buyActive, sellActive } or null
   const [manageAutoPosition, setManageAutoPosition] = useState(null); // true | false | null (loading)
@@ -205,12 +205,6 @@ const App = () => {
     window._superTrendData = superTrendData;
   }, [superTrendData]);
 
-  // Refresh "X min ago" for pairstatus last_updated every minute
-  useEffect(() => {
-    if (!emaTrends) return;
-    const id = setInterval(() => setTimeAgoTick((t) => t + 1), 60 * 1000);
-    return () => clearInterval(id);
-  }, [emaTrends]);
   const [metrics, setMetrics] = useState(null);
   const [selectedBox, setSelectedBox] = useState(null);
   const [tradeData, setTradeData] = useState([]);
@@ -2740,131 +2734,13 @@ useEffect(() => {
   </div>
 
   {/* SuperTrend + EMA group (inline if space; wraps under if not) */}
-  <div className="flex flex-wrap items-start gap-4 flex-1 min-w-0">
+  <div className="flex flex-wrap items-start gap-2 flex-1 min-w-0">
     {/* SuperTrend: fixed width on sm+; full width on xs */}
-    <div className="w-full sm:w-[300px] md:w-[360px] shrink-0 min-w-0">
+    <div className="w-full sm:w-[240px] md:w-[280px] shrink-0 min-w-0">
       <SuperTrendPanel data={superTrendData} />
     </div>
 
-    {/* EMA Grid — header on top, value below */}
-    {emaTrends && (
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 flex-1 min-w-0">
-        {(() => {
-          const getTimeAgo = (lastUpdated) => {
-            try {
-              if (lastUpdated == null || lastUpdated === "") return "—";
-              let utcStr = String(lastUpdated).trim();
-              if (!utcStr) return "—";
-              if (!/Z$|[+-]\d{2}:?\d{2}$/.test(utcStr)) utcStr = utcStr.replace(" ", "T") + "Z";
-              const t = new Date(utcStr).getTime();
-              if (Number.isNaN(t)) return "—";
-              const diffMs = Date.now() - t;
-              const diffSec = Math.floor(diffMs / 1000);
-              const diffMin = Math.floor(diffSec / 60);
-              const diffHours = Math.floor(diffMin / 60);
-              if (diffSec < 60) return `${diffSec} sec ago`;
-              if (diffMin < 60) return `${diffMin} min ago`;
-              if (diffHours < 24) return `${diffHours} hr ago`;
-              return `${Math.floor(diffHours / 24)} days ago`;
-            } catch {
-              return "—";
-            }
-          };
-          const pctColor = (valNum, isBull, isBear) => {
-            const v = Number(valNum);
-            if (Number.isNaN(v)) return { color: "rgb(255,255,255)" };
-            const tRaw = Math.max(0, Math.min(v / 90, 1));
-            const t = Math.pow(tRaw, 0.6);
-            const target = isBull ? [34, 197, 94] : isBear ? [239, 68, 68] : [255, 255, 255];
-            const r = Math.round(255 + (target[0] - 255) * t);
-            const g = Math.round(255 + (target[1] - 255) * t);
-            const b = Math.round(255 + (target[2] - 255) * t);
-            return { color: `rgb(${r}, ${g}, ${b})` };
-          };
-
-          const EmaCell = ({ header, value, trendText, pct }) => {
-            const val = Number(pct);
-            const trend = (trendText || "").toLowerCase();
-            const isBull = trend.includes("bull");
-            const isBear = trend.includes("bear");
-            const hot = pct != null && pct !== "" && !Number.isNaN(val) && val >= 90;
-            const baseBox =
-              "w-full min-w-0 flex flex-col rounded-lg border transition-all duration-200 ease-out " +
-              "bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900 " +
-              "px-3 py-2 md:px-4 md:py-2.5";
-            const hotDecor = hot
-              ? isBear
-                ? " bg-red-50 dark:bg-red-950/40 ring-2 ring-red-300 dark:ring-red-800"
-                : isBull
-                ? " bg-green-50 dark:bg-green-950/40 ring-2 ring-green-300 dark:ring-green-800"
-                : ""
-              : "";
-            const valueStyle = pct != null && pct !== "" && !hot ? pctColor(val, isBull, isBear) : undefined;
-            const valueClass = pct != null && pct !== "" && hot
-              ? (isBull ? "text-green-600" : isBear ? "text-red-600" : "text-black dark:text-white")
-              : "text-black dark:text-white";
-            const displayValue = pct != null && pct !== ""
-              ? `${(trendText || "").trim()} ${!Number.isNaN(val) ? val.toFixed(2) : pct}%`
-              : (typeof value !== "undefined" && value !== null && String(value).trim() !== "" ? String(value).trim() : "—");
-
-            return (
-              <div className={`${baseBox} ${hotDecor}`.trim()}>
-                <span className="text-blue-700 dark:text-blue-200 font-bold text-xs md:text-sm mb-1 truncate">
-                  {header}
-                  </span>
-                <span
-                  className={`font-bold text-sm md:text-base truncate ${valueClass}`}
-                  style={valueStyle}
-                  title={displayValue}
-                >
-                  {pct != null && pct !== "" && (isBull || isBear) && (
-                    <span className="mr-1">{isBull ? "▲" : "▼"}</span>
-                  )}
-                  {displayValue}
-                </span>
-              </div>
-            );
-          };
-
-          const lastUpdatedDisplay = getTimeAgo(emaTrends.last_updated);
-          return (
-            <>
-              <EmaCell header="Last Update Time" value={lastUpdatedDisplay ?? "—"} />
-              <EmaCell
-                header="EMA 1m"
-                trendText={emaTrends.overall_ema_trend_1m}
-                pct={emaTrends.overall_ema_trend_percentage_1m}
-              />
-              <EmaCell
-                header="EMA 5m"
-                trendText={emaTrends.overall_ema_trend_5m}
-                pct={emaTrends.overall_ema_trend_percentage_5m}
-              />
-              <EmaCell
-                header="EMA 15m"
-                trendText={emaTrends.overall_ema_trend_15m}
-                pct={emaTrends.overall_ema_trend_percentage_15m}
-              />
-              <EmaCell
-                header="EMA 1h"
-                trendText={emaTrends.overall_ema_trend_1h}
-                pct={emaTrends.overall_ema_trend_percentage_1h}
-              />
-              <EmaCell
-                header="EMA 4h"
-                trendText={emaTrends.overall_ema_trend_4h}
-                pct={emaTrends.overall_ema_trend_percentage_4h}
-              />
-              <EmaCell
-                header="EMA 1d"
-                trendText={emaTrends.overall_ema_trend_1d}
-                pct={emaTrends.overall_ema_trend_percentage_1d}
-              />
-            </>
-          );
-        })()}
-      </div>
-    )}
+    <EmaTrendGrid emaTrends={emaTrends} />
   </div>
 </div>
 

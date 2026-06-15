@@ -548,14 +548,9 @@ app.get("/api/pairstatus", async (req, res) => {
       return res.json({});
     }
     const result = await pool.query(`
-      SELECT last_updated,
-             overall_ema_trend_1m, overall_ema_trend_percentage_1m,
-             overall_ema_trend_5m, overall_ema_trend_percentage_5m,
-             overall_ema_trend_15m, overall_ema_trend_percentage_15m,
-             overall_ema_trend_1h, overall_ema_trend_percentage_1h,
-             overall_ema_trend_4h, overall_ema_trend_percentage_4h,
-             overall_ema_trend_1d, overall_ema_trend_percentage_1d
+      SELECT *
       FROM pairstatus
+      ORDER BY last_updated DESC NULLS LAST
       LIMIT 1;
     `);
     res.json(result.rows[0] || {});
