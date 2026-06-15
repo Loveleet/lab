@@ -13,31 +13,42 @@ function normalizeKey(key) {
   return String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function pickEmaTrend(data, aliases) {
-  if (!data || typeof data !== "object") return undefined;
-  const entries = Object.entries(data);
-  for (const alias of aliases) {
-    const needle = `overallematrend${alias.toLowerCase()}`;
-    const hit = entries.find(([k, v]) => {
-      const nk = normalizeKey(k);
-      return nk.includes("overallematrend") && !nk.includes("percent") && nk.includes(alias.toLowerCase()) && v != null && String(v).trim() !== "";
-    });
-    if (hit) return hit[1];
-  }
-  return undefined;
+function isTrendText(value) {
+  const s = String(value ?? "").trim().toUpperCase();
+  return s.includes("BULL") || s.includes("BEAR");
 }
 
-function pickEmaPct(data, aliases) {
-  if (!data || typeof data !== "object") return undefined;
-  const entries = Object.entries(data);
-  for (const alias of aliases) {
-    const hit = entries.find(([k, v]) => {
-      const nk = normalizeKey(k);
-      return nk.includes("overallematrend") && nk.includes("percent") && nk.includes(alias.toLowerCase()) && v != null && String(v).trim() !== "";
-    });
-    if (hit) return hit[1];
+function isNumericValue(value) {
+  if (value == null || String(value).trim() === "") return false;
+  return !Number.isNaN(parseFloat(value));
+}
+
+/** DB sometimes stores trend in overall_ema_trend_percentage_* and % in overall_ema_trend_*. */
+export function resolveEmaInterval(data, aliases) {
+  if (!data || typeof data !== "object") return { trend: undefined, pct: undefined };
+
+  let rawA;
+  let rawB;
+  for (const [k, v] of Object.entries(data)) {
+    if (v == null || String(v).trim() === "") continue;
+    const nk = normalizeKey(k);
+    if (!nk.includes("overallematrend")) continue;
+    const aliasHit = aliases.some((a) => nk.includes(String(a).toLowerCase()));
+    if (!aliasHit) continue;
+    if (nk.includes("percent")) rawB = v;
+    else rawA = v;
   }
-  return undefined;
+
+  if (rawA == null && rawB == null) return { trend: undefined, pct: undefined };
+  if (isTrendText(rawA) && isNumericValue(rawB)) return { trend: rawA, pct: rawB };
+  if (isTrendText(rawB) && isNumericValue(rawA)) return { trend: rawB, pct: rawA };
+  if (isNumericValue(rawA) && !rawB) return { trend: undefined, pct: rawA };
+  if (isNumericValue(rawB) && !rawA) return { trend: undefined, pct: rawB };
+  if (isTrendText(rawA)) return { trend: rawA, pct: isNumericValue(rawB) ? rawB : undefined };
+  if (isTrendText(rawB)) return { trend: rawB, pct: isNumericValue(rawA) ? rawA : undefined };
+  if (isNumericValue(rawA)) return { trend: undefined, pct: rawA };
+  if (isNumericValue(rawB)) return { trend: undefined, pct: rawB };
+  return { trend: rawA, pct: rawB };
 }
 
 function getTimeAgo(lastUpdated) {
@@ -74,11 +85,15 @@ function EmaCell({ label, value, trendText, pct }) {
   const trend = (trendText || "").toLowerCase();
   const isBull = trend.includes("bull");
   const isBear = trend.includes("bear");
-  const hot = pct != null && pct !== "" && !Number.isNaN(val) && val >= 90;
   const shortTrend = abbrevTrend(trendText);
-  const hasTrend = shortTrend && pct != null && pct !== "" && !Number.isNaN(val);
-  const displayValue = hasTrend
+  const hasPct = pct != null && pct !== "" && !Number.isNaN(val);
+  const hot = hasPct && val >= 90;
+  const displayValue = shortTrend && hasPct
     ? `${shortTrend} ${val.toFixed(1)}%`
+    : shortTrend
+    ? shortTrend
+    : hasPct
+    ? `${val.toFixed(1)}%`
     : typeof value !== "undefined" && value !== null && String(value).trim() !== ""
     ? String(value).trim()
     : "—";
@@ -91,7 +106,7 @@ function EmaCell({ label, value, trendText, pct }) {
       : ""
     : "";
 
-  const valueClass = hasTrend
+  const valueClass = shortTrend
     ? hot
       ? isBull
         ? "text-green-400"
@@ -112,14 +127,14 @@ function EmaCell({ label, value, trendText, pct }) {
     >
       <div className="text-[10px] leading-none text-blue-300/90 font-medium mb-1">{label}</div>
       <div className={`text-[11px] leading-tight font-semibold whitespace-nowrap ${valueClass}`}>
-        {hasTrend && (isBull || isBear) && <span className="mr-0.5">{isBull ? "▲" : "▼"}</span>}
+        {shortTrend && (isBull || isBear) && <span className="mr-0.5">{isBull ? "▲" : "▼"}</span>}
         {displayValue}
       </div>
     </div>
   );
 }
 
-/** Compact scrollable EMA row from /api/pairstatus (merges fields across DB rows). */
+/** Compact scrollable EMA row from /api/pairstatus. */
 export default function EmaTrendGrid({ emaTrends, className = "" }) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -135,19 +150,14 @@ export default function EmaTrendGrid({ emaTrends, className = "" }) {
   }, [emaTrends]);
 
   if (!emaTrends) return null;
-
   return (
     <div className={`flex-1 min-w-0 overflow-hidden ${className}`.trim()}>
       <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
         <EmaCell label="Updated" value={lastUpdatedDisplay ?? "—"} />
-        {EMA_INTERVALS.map(({ label, aliases }) => (
-          <EmaCell
-            key={label}
-            label={label}
-            trendText={pickEmaTrend(emaTrends, aliases)}
-            pct={pickEmaPct(emaTrends, aliases)}
-          />
-        ))}
+        {EMA_INTERVALS.map(({ label, aliases }) => {
+          const { trend, pct } = resolveEmaInterval(emaTrends, aliases);
+          return <EmaCell key={label} label={label} trendText={trend} pct={pct} />;
+        })}
       </div>
     </div>
   );

@@ -517,11 +517,15 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
         await apiFetch("/api/sync-open-positions").catch(() => {});
       } catch (_) {}
       const tradeRes = await apiFetch("/api/trades");
-      if (tradeRes.status === 401) { setLoggedIn(false); return; }
-      const tradeJson = tradeRes.ok ? await tradeRes.json() : { trades: [] };
-      const trades = Array.isArray(tradeJson.trades) ? tradeJson.trades : [];
-      console.log("[DEBUG] Trades received:", trades.length, "rows");
-      setDemoDataHint(tradeJson._meta?.demoData ? tradeJson._meta.hint || null : null);
+      let trades = [];
+      if (tradeRes.status === 401) {
+        setLoggedIn(false);
+      } else {
+        const tradeJson = tradeRes.ok ? await tradeRes.json() : { trades: [] };
+        trades = Array.isArray(tradeJson.trades) ? tradeJson.trades : [];
+        console.log("[DEBUG] Trades received:", trades.length, "rows");
+        setDemoDataHint(tradeJson._meta?.demoData ? tradeJson._meta.hint || null : null);
+      }
 
       // Use base path so logs.json works on GitHub Pages (e.g. /lab_live/logs.json)
       const logsPath = `${(import.meta.env.BASE_URL || "/").replace(/\/?$/, "/")}logs.json`;
@@ -529,6 +533,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       const logJson = logRes.ok ? await logRes.json() : { logs: [] };
       const logs = Array.isArray(logJson?.logs) ? logJson.logs : [];
 
+      // Public signal endpoints — fetch even when /api/trades returns 401
       // Fetch SuperTrend data
       console.log("[API DEBUG] fetch /api/supertrend");
       const superTrendRes = await apiFetch("/api/supertrend");

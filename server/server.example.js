@@ -535,14 +535,54 @@ app.get("/api/machines", async (req, res) => {
 });
 
 // ✅ API: Fetch EMA Trend Data from pairstatus
-/** Merge overall EMA fields from multiple pairstatus rows (528 pairs); first non-null per column wins. */
+/** Merge overall EMA fields from pairstatus; prefer the row with the most EMA data filled. */
+function scorePairstatusEmaRow(row) {
+  if (!row) return 0;
+  let score = 0;
+  for (const [k, v] of Object.entries(row)) {
+    if (!String(k).toLowerCase().includes("overall_ema")) continue;
+    if (v != null && String(v).trim() !== "") score += 1;
+  }
+  return score;
+}
+
+function isTrendTextValue(value) {
+  const s = String(value ?? "").trim().toUpperCase();
+  return s.includes("BULL") || s.includes("BEAR");
+}
+
+function isNumericValue(value) {
+  if (value == null || String(value).trim() === "") return false;
+  return !Number.isNaN(parseFloat(value));
+}
+
+/** DB may store BULLISH/BEARISH in overall_ema_trend_percentage_* and numeric % in overall_ema_trend_*. */
+function normalizePairstatusEma(merged) {
+  const out = { ...merged };
+  const intervals = ["1m", "5m", "15m", "1h", "4h", "1d"];
+  for (const iv of intervals) {
+    const trendKey = `overall_ema_trend_${iv}`;
+    const pctKey = `overall_ema_trend_percentage_${iv}`;
+    const a = merged[trendKey];
+    const b = merged[pctKey];
+    if (a == null && b == null) continue;
+    if (isNumericValue(a) && isTrendTextValue(b)) {
+      out[trendKey] = b;
+      out[pctKey] = a;
+    } else {
+      out[trendKey] = a;
+      out[pctKey] = b;
+    }
+  }
+  return out;
+}
+
 function mergePairstatusEmaRows(rows) {
   if (!Array.isArray(rows) || rows.length === 0) return {};
 
+  const ordered = [...rows].sort((a, b) => scorePairstatusEmaRow(b) - scorePairstatusEmaRow(a));
   const allKeys = new Set();
-  for (const row of rows) {
-    Object.keys(row || {}).forEach((k) => allKeys.add(k));
-  }
+  for (const row of ordered) Object.keys(row || {}).forEach((k) => allKeys.add(k));
 
   const merged = {};
   let latestUpdated = null;
@@ -551,8 +591,7 @@ function mergePairstatusEmaRows(rows) {
     const lk = key.toLowerCase();
     if (lk === "last_updated" || lk === "lastupdated") continue;
     if (!lk.includes("overall_ema")) continue;
-
-    for (const row of rows) {
+    for (const row of ordered) {
       const v = row[key];
       if (v != null && String(v).trim() !== "") {
         merged[key] = v;
@@ -561,7 +600,7 @@ function mergePairstatusEmaRows(rows) {
     }
   }
 
-  for (const row of rows) {
+  for (const row of ordered) {
     const lu = row.last_updated ?? row.Last_updated ?? row.lastUpdated;
     if (!lu) continue;
     const t = new Date(lu).getTime();
@@ -571,7 +610,7 @@ function mergePairstatusEmaRows(rows) {
   }
   if (latestUpdated) merged.last_updated = latestUpdated;
 
-  return merged;
+  return normalizePairstatusEma(merged);
 }
 
 app.get("/api/pairstatus", async (req, res) => {
@@ -582,14 +621,46 @@ app.get("/api/pairstatus", async (req, res) => {
       if (fallback && typeof fallback === "object") return res.json(fallback);
       return res.json({});
     }
-    const result = await pool.query(`
-      SELECT *
-      FROM pairstatus
-      ORDER BY last_updated DESC NULLS LAST
-      LIMIT 300
-    `);
-    const merged = mergePairstatusEmaRows(result.rows);
-    res.json(Object.keys(merged).length ? merged : (result.rows[0] || {}));
+
+    const emaWhere = `
+      overall_ema_trend_1m IS NOT NULL
+         OR overall_ema_trend_percentage_1m IS NOT NULL
+         OR overall_ema_trend_1h IS NOT NULL
+         OR overall_ema_trend_percentage_1h IS NOT NULL
+         OR overall_ema_trend_4h IS NOT NULL
+         OR overall_ema_trend_percentage_4h IS NOT NULL
+         OR overall_ema_trend_1d IS NOT NULL
+         OR overall_ema_trend_percentage_1d IS NOT NULL
+         OR overall_ema_trend_5m IS NOT NULL
+         OR overall_ema_trend_percentage_5m IS NOT NULL
+         OR overall_ema_trend_15m IS NOT NULL
+         OR overall_ema_trend_percentage_15m IS NOT NULL`;
+
+    // Overall EMA is stored on ATOMUSDT (or OVERALL) row — fetch that first, then merge others.
+    const [atomResult, emaResult] = await Promise.all([
+      pool.query(`
+        SELECT *
+        FROM pairstatus
+        WHERE UPPER(TRIM(COALESCE(pair, ''))) IN ('ATOMUSDT', 'OVERALL', 'ALL', 'SUMMARY')
+        ORDER BY last_updated DESC NULLS LAST
+        LIMIT 5
+      `),
+      pool.query(`
+        SELECT *
+        FROM pairstatus
+        WHERE ${emaWhere}
+        ORDER BY last_updated DESC NULLS LAST
+        LIMIT 50
+      `),
+    ]);
+
+    const rows = [...(atomResult.rows || []), ...(emaResult.rows || [])];
+    let merged = mergePairstatusEmaRows(rows);
+    if (!Object.keys(merged).length) {
+      const fallback = await pool.query(`SELECT * FROM pairstatus ORDER BY last_updated DESC NULLS LAST LIMIT 300`);
+      merged = mergePairstatusEmaRows(fallback.rows);
+    }
+    res.json(Object.keys(merged).length ? merged : (rows[0] || {}));
   } catch (error) {
     if (isMissingTable(error)) return res.json({});
     console.error("❌ Query Error (/api/pairstatus):", error.message);
