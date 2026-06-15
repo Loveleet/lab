@@ -2733,14 +2733,13 @@ useEffect(() => {
     </span>
   </div>
 
-  {/* SuperTrend + EMA group (inline if space; wraps under if not) */}
-  <div className="flex flex-wrap items-start gap-2 flex-1 min-w-0">
-    {/* SuperTrend: fixed width on sm+; full width on xs */}
-    <div className="w-full sm:w-[240px] md:w-[280px] shrink-0 min-w-0">
+  {/* SuperTrend + EMA group */}
+  <div className="flex flex-col xl:flex-row items-stretch gap-2 flex-1 min-w-0 w-full">
+    <div className="w-full xl:w-[220px] shrink-0 min-w-0">
       <SuperTrendPanel data={superTrendData} />
     </div>
 
-    <EmaTrendGrid emaTrends={emaTrends} />
+    <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
   </div>
 </div>
 

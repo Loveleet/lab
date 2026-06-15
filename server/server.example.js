@@ -234,9 +234,6 @@ app.get("/api/health", (req, res) => {
   res.send("✅ Backend is working!");
 });
 
-<<<<<<< HEAD
-// Return current Cloudflare tunnel URL (for GitHub Pages). Written by update-github-secret-from-tunnel.sh on cloud.
-=======
 // ✅ Server config check (no secrets) — verify CORS + DB for GitHub Pages
 app.get("/api/server-info", (req, res) => {
   const requestOrigin = req.headers.origin || "(no origin header)";
@@ -272,7 +269,6 @@ function getTunnelUrlFromLog(logPath) {
     return matches && matches.length ? matches[matches.length - 1].trim() : null;
   } catch (e) { return null; }
 }
->>>>>>> 3c85722 (new)
 app.get("/api/tunnel-url", (req, res) => {
   try {
     if (fs.existsSync(TUNNEL_URL_FILE)) {
@@ -539,6 +535,45 @@ app.get("/api/machines", async (req, res) => {
 });
 
 // ✅ API: Fetch EMA Trend Data from pairstatus
+/** Merge overall EMA fields from multiple pairstatus rows (528 pairs); first non-null per column wins. */
+function mergePairstatusEmaRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return {};
+
+  const allKeys = new Set();
+  for (const row of rows) {
+    Object.keys(row || {}).forEach((k) => allKeys.add(k));
+  }
+
+  const merged = {};
+  let latestUpdated = null;
+
+  for (const key of allKeys) {
+    const lk = key.toLowerCase();
+    if (lk === "last_updated" || lk === "lastupdated") continue;
+    if (!lk.includes("overall_ema")) continue;
+
+    for (const row of rows) {
+      const v = row[key];
+      if (v != null && String(v).trim() !== "") {
+        merged[key] = v;
+        break;
+      }
+    }
+  }
+
+  for (const row of rows) {
+    const lu = row.last_updated ?? row.Last_updated ?? row.lastUpdated;
+    if (!lu) continue;
+    const t = new Date(lu).getTime();
+    if (!Number.isNaN(t) && (!latestUpdated || t > new Date(latestUpdated).getTime())) {
+      latestUpdated = lu;
+    }
+  }
+  if (latestUpdated) merged.last_updated = latestUpdated;
+
+  return merged;
+}
+
 app.get("/api/pairstatus", async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -551,9 +586,10 @@ app.get("/api/pairstatus", async (req, res) => {
       SELECT *
       FROM pairstatus
       ORDER BY last_updated DESC NULLS LAST
-      LIMIT 1;
+      LIMIT 300
     `);
-    res.json(result.rows[0] || {});
+    const merged = mergePairstatusEmaRows(result.rows);
+    res.json(Object.keys(merged).length ? merged : (result.rows[0] || {}));
   } catch (error) {
     if (isMissingTable(error)) return res.json({});
     console.error("❌ Query Error (/api/pairstatus):", error.message);

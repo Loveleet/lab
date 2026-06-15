@@ -1,31 +1,41 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 
 const EMA_INTERVALS = [
-  { label: "EMA 1m", trendKeys: ["overall_ema_trend_1m"], pctKeys: ["overall_ema_trend_percentage_1m"] },
-  { label: "EMA 5m", trendKeys: ["overall_ema_trend_5m"], pctKeys: ["overall_ema_trend_percentage_5m"] },
-  { label: "EMA 15m", trendKeys: ["overall_ema_trend_15m"], pctKeys: ["overall_ema_trend_percentage_15m"] },
-  {
-    label: "EMA 1h",
-    trendKeys: ["overall_ema_trend_1h", "overall_ema_trend_60m", "overall_ema_trend_1H"],
-    pctKeys: ["overall_ema_trend_percentage_1h", "overall_ema_trend_percentage_60m", "overall_ema_trend_percentage_1H"],
-  },
-  {
-    label: "EMA 4h",
-    trendKeys: ["overall_ema_trend_4h", "overall_ema_trend_240m", "overall_ema_trend_4H"],
-    pctKeys: ["overall_ema_trend_percentage_4h", "overall_ema_trend_percentage_240m", "overall_ema_trend_percentage_4H"],
-  },
-  {
-    label: "EMA 1d",
-    trendKeys: ["overall_ema_trend_1d", "overall_ema_trend_24h", "overall_ema_trend_1D", "overall_ema_trend_D"],
-    pctKeys: ["overall_ema_trend_percentage_1d", "overall_ema_trend_percentage_24h", "overall_ema_trend_percentage_1D", "overall_ema_trend_percentage_D"],
-  },
+  { label: "1m", aliases: ["1m"] },
+  { label: "5m", aliases: ["5m"] },
+  { label: "15m", aliases: ["15m"] },
+  { label: "1h", aliases: ["1h", "60m"] },
+  { label: "4h", aliases: ["4h", "240m"] },
+  { label: "1d", aliases: ["1d", "24h", "d"] },
 ];
 
-function pickField(data, keys) {
+function normalizeKey(key) {
+  return String(key || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function pickEmaTrend(data, aliases) {
   if (!data || typeof data !== "object") return undefined;
-  for (const key of keys) {
-    const val = data[key];
-    if (val != null && String(val).trim() !== "") return val;
+  const entries = Object.entries(data);
+  for (const alias of aliases) {
+    const needle = `overallematrend${alias.toLowerCase()}`;
+    const hit = entries.find(([k, v]) => {
+      const nk = normalizeKey(k);
+      return nk.includes("overallematrend") && !nk.includes("percent") && nk.includes(alias.toLowerCase()) && v != null && String(v).trim() !== "";
+    });
+    if (hit) return hit[1];
+  }
+  return undefined;
+}
+
+function pickEmaPct(data, aliases) {
+  if (!data || typeof data !== "object") return undefined;
+  const entries = Object.entries(data);
+  for (const alias of aliases) {
+    const hit = entries.find(([k, v]) => {
+      const nk = normalizeKey(k);
+      return nk.includes("overallematrend") && nk.includes("percent") && nk.includes(alias.toLowerCase()) && v != null && String(v).trim() !== "";
+    });
+    if (hit) return hit[1];
   }
   return undefined;
 }
@@ -56,69 +66,60 @@ function abbrevTrend(trendText) {
   if (!t) return "";
   if (t.includes("BULL")) return "BULL";
   if (t.includes("BEAR")) return "BEAR";
-  return t.length > 6 ? t.slice(0, 6) : t;
+  return t.length > 5 ? t.slice(0, 5) : t;
 }
 
-function pctColor(valNum, isBull, isBear) {
-  const v = Number(valNum);
-  if (Number.isNaN(v)) return { color: "rgb(255,255,255)" };
-  const tRaw = Math.max(0, Math.min(v / 90, 1));
-  const t = Math.pow(tRaw, 0.6);
-  const target = isBull ? [34, 197, 94] : isBear ? [239, 68, 68] : [255, 255, 255];
-  const r = Math.round(255 + (target[0] - 255) * t);
-  const g = Math.round(255 + (target[1] - 255) * t);
-  const b = Math.round(255 + (target[2] - 255) * t);
-  return { color: `rgb(${r}, ${g}, ${b})` };
-}
-
-function EmaCell({ header, value, trendText, pct }) {
+function EmaCell({ label, value, trendText, pct }) {
   const val = Number(pct);
   const trend = (trendText || "").toLowerCase();
   const isBull = trend.includes("bull");
   const isBear = trend.includes("bear");
   const hot = pct != null && pct !== "" && !Number.isNaN(val) && val >= 90;
-  const baseBox =
-    "w-full min-w-0 flex flex-col rounded-md border transition-all duration-200 ease-out " +
-    "bg-blue-50 dark:bg-blue-950/40 border-blue-200 dark:border-blue-900 " +
-    "px-1.5 py-1 sm:px-2 sm:py-1.5";
-  const hotDecor = hot
-    ? isBear
-      ? " bg-red-50 dark:bg-red-950/40 ring-1 ring-red-300 dark:ring-red-800"
-      : isBull
-      ? " bg-green-50 dark:bg-green-950/40 ring-1 ring-green-300 dark:ring-green-800"
-      : ""
-    : "";
-  const valueStyle = pct != null && pct !== "" && !hot ? pctColor(val, isBull, isBear) : undefined;
-  const valueClass = pct != null && pct !== "" && hot
-    ? isBull ? "text-green-600" : isBear ? "text-red-600" : "text-black dark:text-white"
-    : "text-black dark:text-white";
   const shortTrend = abbrevTrend(trendText);
-  const displayValue = pct != null && pct !== "" && shortTrend
-    ? `${shortTrend} ${!Number.isNaN(val) ? val.toFixed(1) : pct}%`
+  const hasTrend = shortTrend && pct != null && pct !== "" && !Number.isNaN(val);
+  const displayValue = hasTrend
+    ? `${shortTrend} ${val.toFixed(1)}%`
     : typeof value !== "undefined" && value !== null && String(value).trim() !== ""
     ? String(value).trim()
     : "—";
 
+  const hotClass = hot
+    ? isBull
+      ? "ring-1 ring-green-400/80 bg-green-950/50"
+      : isBear
+      ? "ring-1 ring-red-400/80 bg-red-950/50"
+      : ""
+    : "";
+
+  const valueClass = hasTrend
+    ? hot
+      ? isBull
+        ? "text-green-400"
+        : isBear
+        ? "text-red-400"
+        : "text-white"
+      : isBull
+      ? "text-green-400"
+      : isBear
+      ? "text-red-400"
+      : "text-slate-100"
+    : "text-slate-300";
+
   return (
-    <div className={`${baseBox} ${hotDecor}`.trim()}>
-      <span className="text-blue-700 dark:text-blue-200 font-semibold text-[9px] sm:text-[10px] leading-tight mb-0.5 truncate">
-        {header}
-      </span>
-      <span
-        className={`font-semibold text-[9px] sm:text-[11px] leading-tight truncate ${valueClass}`}
-        style={valueStyle}
-        title={displayValue}
-      >
-        {pct != null && pct !== "" && (isBull || isBear) && (
-          <span className="mr-0.5">{isBull ? "▲" : "▼"}</span>
-        )}
+    <div
+      className={`flex-shrink-0 w-[4.75rem] sm:w-[5.25rem] rounded border border-blue-800/80 bg-slate-900/90 px-1.5 py-1 ${hotClass}`}
+      title={displayValue}
+    >
+      <div className="text-[10px] leading-none text-blue-300/90 font-medium mb-1">{label}</div>
+      <div className={`text-[11px] leading-tight font-semibold whitespace-nowrap ${valueClass}`}>
+        {hasTrend && (isBull || isBear) && <span className="mr-0.5">{isBull ? "▲" : "▼"}</span>}
         {displayValue}
-      </span>
+      </div>
     </div>
   );
 }
 
-/** Compact EMA trend row from /api/pairstatus (supports multiple column name variants). */
+/** Compact scrollable EMA row from /api/pairstatus (merges fields across DB rows). */
 export default function EmaTrendGrid({ emaTrends, className = "" }) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -127,24 +128,27 @@ export default function EmaTrendGrid({ emaTrends, className = "" }) {
     return () => clearInterval(id);
   }, [emaTrends]);
 
+  const lastUpdatedDisplay = useMemo(() => {
+    if (!emaTrends) return "—";
+    const lu = emaTrends.last_updated ?? emaTrends.Last_updated ?? emaTrends.lastUpdated;
+    return getTimeAgo(lu);
+  }, [emaTrends]);
+
   if (!emaTrends) return null;
 
-  const lastUpdated = pickField(emaTrends, ["last_updated", "Last_updated", "lastUpdated"]);
-  const lastUpdatedDisplay = getTimeAgo(lastUpdated);
-
   return (
-    <div
-      className={`grid grid-cols-4 sm:grid-cols-7 xl:grid-cols-8 gap-1 sm:gap-1.5 flex-1 min-w-0 ${className}`.trim()}
-    >
-      <EmaCell header="Last Update" value={lastUpdatedDisplay ?? "—"} />
-      {EMA_INTERVALS.map(({ label, trendKeys, pctKeys }) => (
-        <EmaCell
-          key={label}
-          header={label}
-          trendText={pickField(emaTrends, trendKeys)}
-          pct={pickField(emaTrends, pctKeys)}
-        />
-      ))}
+    <div className={`flex-1 min-w-0 overflow-hidden ${className}`.trim()}>
+      <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
+        <EmaCell label="Updated" value={lastUpdatedDisplay ?? "—"} />
+        {EMA_INTERVALS.map(({ label, aliases }) => (
+          <EmaCell
+            key={label}
+            label={label}
+            trendText={pickEmaTrend(emaTrends, aliases)}
+            pct={pickEmaPct(emaTrends, aliases)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
