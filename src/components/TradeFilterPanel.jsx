@@ -78,22 +78,74 @@ const TradeFilterPanel = ({
     });
   };
 
+  /** Radio ↔ checkbox toggle + select all / uncheck (header, right-aligned). */
+  const FilterModeButtons = ({
+    radioMode,
+    onToggleMode,
+    showToggleAll,
+    onToggleAll,
+    allSelected,
+    tone = "blue",
+  }) => {
+    const toneBtn = {
+      blue: "bg-blue-200 dark:bg-blue-800 text-blue-900 dark:text-blue-100 hover:bg-blue-300 dark:hover:bg-blue-700 focus:ring-blue-400",
+      green: "bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-green-400",
+      purple: "bg-purple-200 dark:bg-purple-800 text-purple-900 dark:text-purple-100 hover:bg-purple-300 dark:hover:bg-purple-700 focus:ring-purple-400",
+      pink: "bg-pink-200 dark:bg-pink-800 text-pink-900 dark:text-pink-100 hover:bg-pink-300 dark:hover:bg-pink-700 focus:ring-pink-400",
+      emerald: "bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 hover:bg-emerald-300 dark:hover:bg-emerald-700 focus:ring-emerald-400",
+    }[tone];
 
+    return (
+      <div className="flex flex-wrap items-center justify-end gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={onToggleMode}
+          className={`px-2 py-1 rounded text-xs font-semibold focus:ring-2 transition-all ${toneBtn}`}
+          title={radioMode ? "Switch to checkbox mode (multi-select)" : "Switch to radio mode (single-select)"}
+        >
+          {radioMode ? "◉ Radio" : "☑ Check"}
+        </button>
+        {showToggleAll && (
+          <button
+            type="button"
+            onClick={onToggleAll}
+            className={`text-xs font-semibold px-2 py-1 rounded transition-all focus:ring-2 ${
+              allSelected
+                ? "bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100 hover:bg-red-300 dark:hover:bg-red-700 focus:ring-red-400"
+                : "bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-green-400"
+            }`}
+            title={allSelected ? "Uncheck all" : "Select all"}
+          >
+            {allSelected ? "Uncheck" : "All"}
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  const cardHeader = (icon, title, titleClass, underlineClass, buttons) => (
+    <div className="flex items-start justify-between gap-2 mb-2 min-h-[2rem]">
+      <span className={`text-base sm:text-lg font-extrabold tracking-wide leading-tight shrink-0 ${titleClass}`}>
+        <span className="mr-1">{icon}</span>
+        {title}
+      </span>
+      {buttons}
+    </div>
+  );
 
   return (
-    <div
-      className="w-full min-w-0 grid gap-3"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}
-    >
-      {/* Signal Filter Group */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-blue-900 dark:via-gray-900 dark:to-blue-950 rounded-2xl shadow-lg border border-blue-200 dark:border-blue-800 p-4 gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative text-blue-700 dark:text-blue-200 leading-tight">
-            <span className="mr-2">📡</span> Signal
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-blue-400 via-blue-300 to-blue-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
-          <button
-            onClick={() => {
+    <div className="w-full min-w-0 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3 auto-rows-min">
+      {/* Signal Filter Group — row 1, col 1 */}
+      <div className="min-w-0 h-full xl:col-start-1 xl:row-start-1 bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-blue-900 dark:via-gray-900 dark:to-blue-950 rounded-2xl shadow-lg border border-blue-200 dark:border-blue-800 p-4 gap-2">
+        {cardHeader(
+          "📡",
+          "Signal",
+          "text-blue-700 dark:text-blue-200",
+          null,
+          <FilterModeButtons
+            tone="blue"
+            radioMode={signalRadioMode}
+            onToggleMode={() => {
               const toggled = !signalRadioMode;
               setSignalRadioMode(toggled);
               if (toggled) {
@@ -108,31 +160,20 @@ const TradeFilterPanel = ({
                 }
               }
             }}
-            className="bg-blue-200 dark:bg-blue-800 text-blue-900 dark:text-blue-100 px-2 py-1 rounded text-xs font-semibold hover:bg-blue-300 dark:hover:bg-blue-700 focus:ring-2 focus:ring-blue-400 transition-all"
-            title="Toggle between radio and checkbox mode"
-          >
-            {signalRadioMode ? "🔘 Check" : "☑️ Radio"}
-          </button>
-          {!signalRadioMode && (
-            <button
-              onClick={() => {
-                const newState = {};
-                Object.keys(selectedSignals).forEach(key => newState[key] = signalToggleAll);
-                setSelectedSignals(newState);
-                setSignalToggleAll(!signalToggleAll);
-                localStorage.setItem("selectedSignals", JSON.stringify(newState));
-              }}
-              className={`text-xs font-semibold px-2 py-1 rounded w-fit ml-2 ${
-                signalToggleAll
-                  ? 'bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-2 focus:ring-green-400'
-                  : 'bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100 hover:bg-red-300 dark:hover:bg-red-700 focus:ring-2 focus:ring-red-400'
-              } transition-all`}
-              title="Select or uncheck all signals"
-            >
-              {signalToggleAll ? "✅ All" : "❌ Uncheck"}
-            </button>
-          )}
-        </div>
+            showToggleAll={!signalRadioMode}
+            allSelected={Object.values(selectedSignals).some(Boolean)}
+            onToggleAll={() => {
+              const anySelected = Object.values(selectedSignals).some(Boolean);
+              const newState = {};
+              Object.keys(selectedSignals).forEach((key) => {
+                newState[key] = !anySelected;
+              });
+              setSelectedSignals(newState);
+              setSignalToggleAll(!anySelected);
+              localStorage.setItem("selectedSignals", JSON.stringify(newState));
+            }}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
           {Object.keys(selectedSignals).map((signal) => (
             <label key={signal} className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -165,15 +206,17 @@ const TradeFilterPanel = ({
           ))}
         </div>
       </div>
-      {/* Machine Filter Group */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-green-50 via-white to-green-100 dark:from-green-900 dark:via-gray-900 dark:to-green-950 rounded-2xl shadow-lg border border-green-200 dark:border-green-800 p-4 gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-green-700 dark:text-green-200">
-            <span className="mr-2">🖥️</span> Machine
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-green-400 via-green-300 to-green-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
-          <button
-            onClick={() => {
+      {/* Machine Filter Group — row 1, col 2 */}
+      <div className="min-w-0 h-full xl:col-start-2 xl:row-start-1 bg-gradient-to-br from-green-50 via-white to-green-100 dark:from-green-900 dark:via-gray-900 dark:to-green-950 rounded-2xl shadow-lg border border-green-200 dark:border-green-800 p-4 gap-2">
+        {cardHeader(
+          "🖥️",
+          "Machine",
+          "text-green-700 dark:text-green-200",
+          null,
+          <FilterModeButtons
+            tone="green"
+            radioMode={machineRadioMode}
+            onToggleMode={() => {
               const toggled = !machineRadioMode;
               setMachineRadioMode(toggled);
               if (toggled) {
@@ -189,35 +232,21 @@ const TradeFilterPanel = ({
                 }
               }
             }}
-            className="bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 px-2 py-1 rounded text-xs font-semibold hover:bg-green-300 dark:hover:bg-green-700 focus:ring-2 focus:ring-green-400 transition-all"
-            title="Toggle between radio and checkbox mode"
-          >
-            {machineRadioMode ? "🔘 Check " : "☑️ Radio"}
-          </button>
-          {!machineRadioMode && (
-            <button
-              onClick={() => {
-                const allChecked = Object.values(selectedMachines).every(v => v === true);
-                const updated = {};
-                machines.forEach(machine => {
-                  const key = toMachineKey(machine.machineid);
-                  updated[key] = !allChecked;
-                });
-                setSelectedMachines(updated);
-                setMachineToggleAll(!allChecked);
-                localStorage.setItem("selectedMachines", JSON.stringify(updated));
-              }}
-              className={`text-xs font-semibold px-2 py-1 rounded w-fit ml-2 ${
-                Object.values(selectedMachines).every(v => v === false)
-                  ? 'bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-2 focus:ring-green-400'
-                  : 'bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100 hover:bg-red-300 dark:hover:bg-red-700 focus:ring-2 focus:ring-red-400'
-              } transition-all`}
-              title="Select or uncheck all machines"
-            >
-              {Object.values(selectedMachines).every(v => v === false) ? "✅ All" : "❌ Uncheck"}
-            </button>
-          )}
-        </div>
+            showToggleAll={!machineRadioMode}
+            allSelected={Object.values(selectedMachines).some(Boolean)}
+            onToggleAll={() => {
+              const allChecked = Object.values(selectedMachines).every((v) => v === true);
+              const updated = {};
+              machines.forEach((machine) => {
+                const key = toMachineKey(machine.machineid);
+                updated[key] = !allChecked;
+              });
+              setSelectedMachines(updated);
+              setMachineToggleAll(!allChecked);
+              localStorage.setItem("selectedMachines", JSON.stringify(updated));
+            }}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
           {machines
             .map((machine) => (
@@ -255,15 +284,17 @@ const TradeFilterPanel = ({
             ))}
         </div>
       </div>
-      {/* Interval Filter Group */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-purple-50 via-white to-purple-100 dark:from-purple-900 dark:via-gray-900 dark:to-purple-950 rounded-2xl shadow-lg border border-purple-200 dark:border-purple-800 p-4 gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-purple-700 dark:text-purple-200">
-            <span className="mr-2">⏱️</span> Interval
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-purple-400 via-purple-300 to-purple-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
-          <button
-            onClick={() => {
+      {/* Interval Filter Group — row 1, col 3 */}
+      <div className="min-w-0 h-full xl:col-start-3 xl:row-start-1 bg-gradient-to-br from-purple-50 via-white to-purple-100 dark:from-purple-900 dark:via-gray-900 dark:to-purple-950 rounded-2xl shadow-lg border border-purple-200 dark:border-purple-800 p-4 gap-2">
+        {cardHeader(
+          "⏱️",
+          "Interval",
+          "text-purple-700 dark:text-purple-200",
+          null,
+          <FilterModeButtons
+            tone="purple"
+            radioMode={intervalRadioMode}
+            onToggleMode={() => {
               const toggled = !intervalRadioMode;
               setIntervalRadioMode(toggled);
               if (toggled) {
@@ -278,33 +309,19 @@ const TradeFilterPanel = ({
                 }
               }
             }}
-            className="bg-purple-200 dark:bg-purple-800 text-purple-900 dark:text-purple-100 px-2 py-1 rounded text-xs font-semibold hover:bg-purple-300 dark:hover:bg-purple-700 focus:ring-2 focus:ring-purple-400 transition-all"
-            title="Toggle between radio and checkbox mode"
-          >
-            {intervalRadioMode ? "🔘 Check" : "☑️ Radio"}
-          </button>
-          {!intervalRadioMode && (
-            <button
-              onClick={() => {
-                const allSelected = Object.values(selectedIntervals).every(val => val);
-                const updated = {};
-                Object.keys(selectedIntervals).forEach(key => {
-                  updated[key] = !allSelected;
-                });
-                setSelectedIntervals(updated);
-                localStorage.setItem("selectedIntervals", JSON.stringify(updated));
-              }}
-              className={`text-xs font-semibold px-2 py-1 rounded w-fit ml-2 ${
-                Object.values(selectedIntervals).every(val => !val)
-                  ? 'bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-2 focus:ring-green-400'
-                  : 'bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100 hover:bg-red-300 dark:hover:bg-red-700 focus:ring-2 focus:ring-red-400'
-              } transition-all`}
-              title="Select or uncheck all intervals"
-            >
-              {Object.values(selectedIntervals).every(val => !val) ? "✅ All" : "❌ Uncheck"}
-            </button>
-          )}
-        </div>
+            showToggleAll={!intervalRadioMode}
+            allSelected={Object.values(selectedIntervals).some(Boolean)}
+            onToggleAll={() => {
+              const allSelected = Object.values(selectedIntervals).every((val) => val);
+              const updated = {};
+              Object.keys(selectedIntervals).forEach((key) => {
+                updated[key] = !allSelected;
+              });
+              setSelectedIntervals(updated);
+              localStorage.setItem("selectedIntervals", JSON.stringify(updated));
+            }}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
           {Object.keys(selectedIntervals).map((interval) => (
             <label key={interval} className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -337,15 +354,17 @@ const TradeFilterPanel = ({
           ))}
         </div>
       </div>
-      {/* Action Filter Group */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-pink-50 via-white to-pink-100 dark:from-pink-900 dark:via-gray-900 dark:to-pink-950 rounded-2xl shadow-lg border border-pink-200 dark:border-pink-800 p-4 gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-pink-700 dark:text-pink-200">
-            <span className="mr-2">🛒</span> Action
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-pink-400 via-pink-300 to-pink-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
-          <button
-            onClick={() => {
+      {/* Action Filter Group — row 1, col 4 */}
+      <div className="min-w-0 h-full xl:col-start-4 xl:row-start-1 bg-gradient-to-br from-pink-50 via-white to-pink-100 dark:from-pink-900 dark:via-gray-900 dark:to-pink-950 rounded-2xl shadow-lg border border-pink-200 dark:border-pink-800 p-4 gap-2">
+        {cardHeader(
+          "🛒",
+          "Action",
+          "text-pink-700 dark:text-pink-200",
+          null,
+          <FilterModeButtons
+            tone="pink"
+            radioMode={actionRadioMode}
+            onToggleMode={() => {
               const toggled = !actionRadioMode;
               setActionRadioMode(toggled);
               if (toggled) {
@@ -358,30 +377,16 @@ const TradeFilterPanel = ({
                 }
               }
             }}
-            className="bg-pink-200 dark:bg-pink-800 text-pink-900 dark:text-pink-100 px-2 py-1 rounded text-xs font-semibold hover:bg-pink-300 dark:hover:bg-pink-700 focus:ring-2 focus:ring-pink-400 transition-all"
-            title="Toggle between radio and checkbox mode"
-          >
-            {actionRadioMode ? "🔘 Check" : "☑️ Radio"}
-          </button>
-          {!actionRadioMode && (
-            <button
-              onClick={() => {
-                const allSelected = Object.values(selectedActions).every(val => val);
-                const updated = { BUY: !allSelected, SELL: !allSelected };
-                setSelectedActions(updated);
-                localStorage.setItem("selectedActions", JSON.stringify(updated));
-              }}
-              className={`text-xs font-semibold px-2 py-1 rounded w-fit ml-2 ${
-                Object.values(selectedActions).every(val => !val)
-                  ? 'bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-2 focus:ring-green-400'
-                  : 'bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100 hover:bg-red-300 dark:hover:bg-red-700 focus:ring-2 focus:ring-red-400'
-              } transition-all`}
-              title="Select or uncheck all actions"
-            >
-              {Object.values(selectedActions).every(val => !val) ? "✅ All" : "❌ Uncheck"}
-            </button>
-          )}
-        </div>
+            showToggleAll={!actionRadioMode}
+            allSelected={Object.values(selectedActions).some(Boolean)}
+            onToggleAll={() => {
+              const allSelected = Object.values(selectedActions).every((val) => val);
+              const updated = { BUY: !allSelected, SELL: !allSelected };
+              setSelectedActions(updated);
+              localStorage.setItem("selectedActions", JSON.stringify(updated));
+            }}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
           {["BUY", "SELL"].map((action) => (
             <label key={action} className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -412,15 +417,87 @@ const TradeFilterPanel = ({
           ))}
         </div>
       </div>
-      {/* Live Filter Group (exist_in_exchange) */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-900 dark:via-gray-900 dark:to-teal-950 rounded-2xl shadow-lg border border-emerald-200 dark:border-emerald-800 p-4 gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-emerald-700 dark:text-emerald-200">
-            <span className="mr-2">📡</span> Live
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
+      {/* Date Range — row 1–2, col 5 */}
+      <div className="min-w-0 h-full xl:col-start-5 xl:row-start-1 xl:row-span-2 bg-gradient-to-br from-yellow-50 via-white to-yellow-100 dark:from-yellow-900 dark:via-gray-900 dark:to-yellow-950 rounded-2xl shadow-lg border border-yellow-200 dark:border-yellow-800 p-2 gap-1 justify-start items-stretch">
+        {cardHeader("📅", "Date & Time", "text-yellow-700 dark:text-yellow-200", null, null)}
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-col">
+            <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-0.5">From</label>
+            <input
+              type="datetime-local"
+              value={fromDate ? moment(fromDate).format('YYYY-MM-DDTHH:mm') : ''}
+              onChange={e => {
+                const value = e.target.value;
+                setFromDate(value ? moment(value) : null);
+              }}
+              className="border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
+              placeholder="From"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-0.5">To</label>
+            <input
+              type="datetime-local"
+              value={toDate ? moment(toDate).format('YYYY-MM-DDTHH:mm') : ''}
+              onChange={e => {
+                const value = e.target.value;
+                setToDate(value ? moment(value) : null);
+              }}
+              className="border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
+              placeholder="To"
+            />
+          </div>
           <button
+            type="button"
             onClick={() => {
+              setFromDate(null);
+              setToDate(null);
+              setDateKey(prev => prev + 1);
+            }}
+            className="bg-yellow-400 dark:bg-yellow-700 text-yellow-900 dark:text-yellow-100 px-2 py-1 rounded mt-1 hover:bg-yellow-500 dark:hover:bg-yellow-800 focus:ring-1 focus:ring-yellow-400 transition-all font-semibold text-xs"
+          >
+            Reset
+          </button>
+        </div>
+      </div>
+      {/* CJ Filter Group — row 2, col 1 */}
+      <div className="min-w-0 h-full xl:col-start-1 xl:row-start-2 bg-gradient-to-br from-indigo-50 via-white to-indigo-100 dark:from-indigo-900 dark:via-gray-900 dark:to-indigo-950 rounded-2xl shadow-lg border border-indigo-200 dark:border-indigo-800 p-4 gap-2">
+        {cardHeader("🧭", "CJ", "text-indigo-700 dark:text-indigo-200", null, null)}
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: "true", label: "True" },
+            { id: "false", label: "False" },
+            { id: "both", label: "Both" },
+          ].map((mode) => {
+            const active = cjFilterMode === mode.id;
+            return (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setCjFilterMode?.(mode.id)}
+                className={`px-3 py-1.5 rounded-md text-sm font-semibold border transition-all ${
+                  active
+                    ? "bg-indigo-600 text-white border-indigo-700"
+                    : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+                }`}
+              >
+                {mode.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      {/* Live Filter Group — row 2, col 4 (under Action) */}
+      <div className="min-w-0 h-full xl:col-start-4 xl:row-start-2 bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-900 dark:via-gray-900 dark:to-teal-950 rounded-2xl shadow-lg border border-emerald-200 dark:border-emerald-800 p-4 gap-2">
+        {cardHeader(
+          "📡",
+          "Live",
+          "text-emerald-700 dark:text-emerald-200",
+          null,
+          <FilterModeButtons
+            tone="emerald"
+            radioMode={!!liveRadioMode}
+            onToggleMode={() => {
               const nextRadio = !liveRadioMode;
               setLiveRadioMode?.(nextRadio);
               if (nextRadio) {
@@ -429,29 +506,15 @@ const TradeFilterPanel = ({
                 setLiveFilter?.({ true: selected === "true", false: selected === "false" });
               }
             }}
-            className="bg-emerald-200 dark:bg-emerald-800 text-emerald-900 dark:text-emerald-100 px-2 py-1 rounded text-xs font-semibold hover:bg-emerald-300 dark:hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-400 transition-all"
-            title="Toggle between radio and checkbox mode"
-          >
-            {liveRadioMode ? "🔘 Check" : "☑️ Radio"}
-          </button>
-          {!liveRadioMode && (
-            <button
-              onClick={() => {
-                const f = liveFilter ?? { true: true, false: true };
-                const allChecked = f.true && f.false;
-                setLiveFilter?.({ true: !allChecked, false: !allChecked });
-              }}
-              className={`text-xs font-semibold px-2 py-1 rounded w-fit ml-2 ${
-                (liveFilter?.true && liveFilter?.false)
-                  ? "bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100 hover:bg-red-300 dark:hover:bg-red-700 focus:ring-2 focus:ring-red-400"
-                  : "bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100 hover:bg-green-300 dark:hover:bg-green-700 focus:ring-2 focus:ring-green-400"
-              } transition-all`}
-              title="Uncheck or select all"
-            >
-              {(liveFilter?.true && liveFilter?.false) ? "❌ Uncheck" : "✅ All"}
-            </button>
-          )}
-        </div>
+            showToggleAll={!liveRadioMode}
+            allSelected={!!(liveFilter?.true || liveFilter?.false)}
+            onToggleAll={() => {
+              const f = liveFilter ?? { true: true, false: true };
+              const allChecked = f.true && f.false;
+              setLiveFilter?.({ true: !allChecked, false: !allChecked });
+            }}
+          />
+        )}
         <div className="flex flex-wrap gap-2">
           <label className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
             {liveRadioMode ? (
@@ -493,86 +556,6 @@ const TradeFilterPanel = ({
             )}
             <span className="text-gray-700 dark:text-gray-200 font-semibold">False</span>
           </label>
-        </div>
-      </div>
-      {/* CJ Filter Group */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-indigo-50 via-white to-indigo-100 dark:from-indigo-900 dark:via-gray-900 dark:to-indigo-950 rounded-2xl shadow-lg border border-indigo-200 dark:border-indigo-800 p-4 gap-2">
-        <div className="flex flex-wrap items-center gap-1.5 mb-2">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-indigo-700 dark:text-indigo-200">
-            <span className="mr-2">🧭</span> CJ
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-indigo-400 via-indigo-300 to-indigo-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {[
-            { id: "true", label: "True" },
-            { id: "false", label: "False" },
-            { id: "both", label: "Both" },
-          ].map((mode) => {
-            const active = cjFilterMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setCjFilterMode?.(mode.id)}
-                className={`px-3 py-1.5 rounded-md text-sm font-semibold border transition-all ${
-                  active
-                    ? "bg-indigo-600 text-white border-indigo-700"
-                    : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
-                }`}
-              >
-                {mode.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      {/* Date Range and Reset */}
-      <div className="min-w-0 h-full bg-gradient-to-br from-yellow-50 via-white to-yellow-100 dark:from-yellow-900 dark:via-gray-900 dark:to-yellow-950 rounded-2xl shadow-lg border border-yellow-200 dark:border-yellow-800 p-2 gap-1 justify-start items-stretch">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-yellow-700 dark:text-yellow-200">
-            <span className="mr-2">📅</span> Date & Time
-            <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-yellow-400 via-yellow-300 to-yellow-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
-          </span>
-        </div>
-        <div className="flex flex-col gap-1">
-          <div className="flex flex-col">
-            <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-0.5">From</label>
-            <input
-              type="datetime-local"
-              value={fromDate ? moment(fromDate).format('YYYY-MM-DDTHH:mm') : ''}
-              onChange={e => {
-                const value = e.target.value;
-                setFromDate(value ? moment(value) : null);
-              }}
-              className="border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
-              placeholder="From"
-            />
-          </div>
-          <div className="flex flex-col">
-            <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-0.5">To</label>
-            <input
-              type="datetime-local"
-              value={toDate ? moment(toDate).format('YYYY-MM-DDTHH:mm') : ''}
-              onChange={e => {
-                const value = e.target.value;
-                setToDate(value ? moment(value) : null);
-              }}
-              className="border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
-              placeholder="To"
-            />
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setFromDate(null);
-              setToDate(null);
-              setDateKey(prev => prev + 1);
-            }}
-            className="bg-yellow-400 dark:bg-yellow-700 text-yellow-900 dark:text-yellow-100 px-2 py-1 rounded mt-1 hover:bg-yellow-500 dark:hover:bg-yellow-800 focus:ring-1 focus:ring-yellow-400 transition-all font-semibold text-xs"
-          >
-            Reset
-          </button>
         </div>
       </div>
     </div>
