@@ -97,14 +97,14 @@ function EmaCell({ label, trendText, pct }) {
 
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-lg border px-2 py-2 min-h-[4.25rem] ${shellClass}`}
+      className={`flex flex-col items-center justify-center rounded-lg border px-2 py-2 min-h-[4.25rem] w-full min-w-0 h-full ${shellClass}`}
       title={hasPct ? `${trendText || ""} ${val.toFixed(1)}%`.trim() : trendText || label}
     >
       <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">{label}</span>
       {empty ? (
         <span className="text-xs text-slate-600">—</span>
       ) : (
-        <>
+        <div className="flex flex-col items-center justify-center flex-1 w-full">
           {(isBull || isBear) && (
             <span
               className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${
@@ -119,7 +119,7 @@ function EmaCell({ label, trendText, pct }) {
               {val.toFixed(1)}%
             </span>
           )}
-        </>
+        </div>
       )}
     </div>
   );
@@ -143,8 +143,8 @@ export default function EmaTrendGrid({ emaTrends, className = "" }) {
   if (!emaTrends) return null;
 
   return (
-    <div className={className}>
-      <div className="flex items-center justify-between gap-2 mb-2.5">
+    <div className={`flex flex-col w-full min-w-0 h-full ${className}`.trim()}>
+      <div className="flex items-center justify-between gap-2 mb-2.5 shrink-0">
         <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">EMA Trend</span>
         {lastUpdatedDisplay && (
           <span className="text-[10px] text-slate-500 tabular-nums">
@@ -152,7 +152,7 @@ export default function EmaTrendGrid({ emaTrends, className = "" }) {
           </span>
         )}
       </div>
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 w-full flex-1 auto-rows-fr">
         {EMA_INTERVALS.map(({ label, aliases }) => {
           const { trend, pct } = resolveEmaInterval(emaTrends, aliases);
           return <EmaCell key={label} label={label} trendText={trend} pct={pct} />;

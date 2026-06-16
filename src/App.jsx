@@ -2473,7 +2473,7 @@ useEffect(() => {
               <Sidebar isOpen={isSidebarOpen} toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)} />
               <div className={`flex-1 min-h-screen min-w-0 max-w-full transition-all duration-300 ${isSidebarOpen ? "ml-64" : "ml-20"} overflow-x-auto overflow-y-auto relative bg-[#f5f6fa] dark:bg-black`}>
                 {/* Main content area, no extra margin-top — contained to prevent overflow */}
-                <div className="p-8 pt-2 w-full max-w-full min-w-0">
+                <div className="px-3 py-2 sm:px-4 w-full max-w-full min-w-0">
                   {corsError && (
                     <div className="mb-4 p-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-400 dark:border-red-600 text-red-900 dark:text-red-100 text-sm">
                       <strong className="block mb-2">❌ CORS Error: Cloud server not allowing GitHub Pages origin</strong>
@@ -2575,6 +2575,7 @@ useEffect(() => {
                     </button>
                   </div>
                   {filterVisible && (
+                    <div className="w-full mb-3">
                     <TradeFilterPanel
                       selectedSignals={selectedSignals}
                       setSelectedSignals={setSelectedSignals}
@@ -2613,10 +2614,12 @@ useEffect(() => {
                       setDateKey={setDateKey}
                       assignedCount={getFilteredForTitle["Assigned_New"]?.length || 0}
                     />
+                    </div>
                   )}
         {/* Toolbar: layout, font, live flags, assigned count */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-2 py-2 mb-3 rounded-lg border border-slate-800/80 bg-slate-900/30">
-          <div className="flex items-center gap-2">
+        <div className="w-full flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 mb-3 rounded-lg border border-slate-800/80 bg-slate-900/30">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Layout</span>
             <button
               type="button"
@@ -2715,8 +2718,7 @@ useEffect(() => {
               </div>
             );
           })()}
-
-          <div className="hidden sm:block w-px h-6 bg-slate-700/80" aria-hidden />
+          </div>
 
           <button
             type="button"
@@ -2743,14 +2745,12 @@ useEffect(() => {
           </button>
         </div>
 
-        {/* Market signals: SuperTrend + EMA */}
-        <div className="mb-4 rounded-xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 to-slate-950/90 shadow-lg overflow-hidden">
-          <div className="grid grid-cols-1 xl:grid-cols-12 divide-y xl:divide-y-0 xl:divide-x divide-slate-700/50">
-            <div className="xl:col-span-4 p-3 sm:p-4 min-w-0">
-              <SuperTrendPanel data={superTrendData} />
-            </div>
-            <div className="xl:col-span-8 p-3 sm:p-4 min-w-0">
-              <EmaTrendGrid emaTrends={emaTrends} />
+        {/* Market signals: SuperTrend + EMA — full width stacked */}
+        <div className="w-full mb-4 rounded-xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 to-slate-950/90 shadow-lg overflow-hidden">
+          <div className="flex flex-col w-full p-3 sm:p-4 gap-3">
+            <SuperTrendPanel data={superTrendData} />
+            <div className="w-full border-t border-slate-700/50 pt-3">
+              <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
             </div>
           </div>
         </div>
@@ -2759,7 +2759,7 @@ useEffect(() => {
                   {/* ✅ Dashboard Cards */}
                   {metrics && (
                     <div
-                      className="grid gap-6 w-full px-2 py-4"
+                      className="grid gap-4 w-full py-3"
                       style={{
                         gridTemplateColumns: `repeat(${Math.min(14, Math.max(1, Number(layoutOption) || 3))}, minmax(0, 1fr))`,
                         transition: 'all 0.3s ease-in-out',
