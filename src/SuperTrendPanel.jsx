@@ -29,7 +29,7 @@ function SuperTrendChip({ row, now }) {
 
   return (
     <div
-      className={`flex flex-1 min-w-[9rem] items-center gap-2 rounded-lg border px-2.5 py-2 ${
+      className={`flex flex-none min-w-[8.5rem] items-center gap-2 rounded-lg border px-2.5 py-1.5 ${
         fresh ? "border-amber-500/50 bg-amber-500/5" : "border-slate-700/50 bg-slate-800/40"
       }`}
       title={`${row.source} ${row.trend} — ${new Date(row.timestamp).toLocaleString()}`}
@@ -65,7 +65,7 @@ function SuperTrendPanel({ data = [] }) {
           No signals
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2 w-full">
+        <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-0.5 scrollbar-thin">
           {data.map((row, i) => (
             <SuperTrendChip key={`${row.source}-${row.timestamp}-${i}`} row={row} now={now} />
           ))}

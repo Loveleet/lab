@@ -2144,9 +2144,10 @@ useEffect(() => {
         <Route path="/*" element={
           <>
             {/* Sticky LAB section at the very top of the app, outside the main flex container */}
-            <div className="sticky top-0 z-40 flex items-center justify-between border-b border-gray-200 dark:border-gray-700 shadow-sm bg-[#f5f6fa] dark:bg-black w-full max-w-full overflow-hidden gap-4" style={{ minHeight: '80px', height: '80px', padding: '0 16px' }}>
+            <div className="sticky top-0 z-40 w-full max-w-full border-b border-gray-200 dark:border-gray-700 shadow-sm bg-[#f5f6fa] dark:bg-black px-3 py-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 w-full min-w-0">
               {/* Left: Refresh + LAB */}
-              <div className="flex items-center gap-6 flex-shrink-0 min-w-0">
+              <div className="flex items-center gap-4 sm:gap-6 shrink-0 min-w-0">
                 <RefreshControls
                   onRefresh={refreshAllData}
                   storageKey="app_main"
@@ -2165,12 +2166,12 @@ useEffect(() => {
               </h1>
             </div>
 
-              {/* Center: Auto Execute + Manage Auto Position — centered */}
+              {/* Center: Auto Execute + Manage Auto Position — wraps on zoom */}
               {autoExecuteMode !== null && (
-                <div className="absolute left-1/2 -translate-x-1/2 flex items-center justify-center gap-4">
-                  <div className="flex items-center gap-4 justify-center py-2 px-4 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm w-[480px] min-w-[480px] max-w-[480px] box-border">
-                    <span className="text-sm font-semibold text-gray-600 dark:text-gray-300 flex-shrink-0">Auto Execute</span>
-                    <div className="flex items-center gap-4 flex-shrink-0">
+                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 flex-1 min-w-[min(100%,20rem)]">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 justify-center py-2 px-3 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm max-w-full min-w-0">
+                    <span className="text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-300 shrink-0">Auto Execute</span>
+                    <div className="flex items-center gap-3 shrink-0">
                       <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                         <input
                           type="checkbox"
@@ -2221,7 +2222,7 @@ useEffect(() => {
                       </label>
                     </div>
                     <span
-                      className={`text-sm px-3 py-1.5 rounded-lg font-medium min-w-0 w-[220px] max-w-[220px] overflow-hidden break-words line-clamp-2 block text-center box-border ${
+                      className={`text-xs sm:text-sm px-2 py-1 rounded-lg font-medium min-w-0 max-w-[12rem] sm:max-w-[14rem] overflow-hidden break-words line-clamp-2 text-center ${
                         autoExecuteMode.buyActive && autoExecuteMode.sellActive
                           ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-300/50 dark:border-emerald-600/50"
                           : !autoExecuteMode.buyActive && !autoExecuteMode.sellActive
@@ -2246,7 +2247,7 @@ useEffect(() => {
                     </span>
                   </div>
                   {/* Manage Auto Position — Buy/Sell scope (DB side) + enable toggle */}
-                  <div className="flex items-center gap-3 flex-shrink-0 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 px-3 py-2 shadow-sm">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 px-3 py-2 shadow-sm max-w-full min-w-0">
                     <span className="text-sm font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">
                       Manage Auto Position
                     </span>
@@ -2360,7 +2361,7 @@ useEffect(() => {
                     </span>
                   </div>
                   {/* Batch set stop (Binance) — LONG vs SHORT, one API call per pair */}
-                  <div className="flex items-center gap-10 flex-shrink-0 border-l border-gray-300 dark:border-gray-600 pl-3 ml-1">
+                  <div className="flex flex-wrap items-center gap-3 sm:gap-6 shrink-0 border-l border-gray-300 dark:border-gray-600 pl-3 ml-0 sm:ml-1 max-w-full">
                     <button
                       type="button"
                       onClick={async () => {
@@ -2406,7 +2407,7 @@ useEffect(() => {
                           );
                         }
                       }}
-                      className="px-5 py-2 rounded-lg text-lg font-semibold bg-emerald-600/90 hover:bg-emerald-600 text-white border border-emerald-700/50 transition-colors whitespace-nowrap"
+                      className="px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg text-sm sm:text-lg font-semibold bg-emerald-600/90 hover:bg-emerald-600 text-white border border-emerald-700/50 transition-colors whitespace-nowrap"
                       title="Set stop for all single-leg LONG positions (HA iloc[-2], interval selected); skips hedge pairs"
                     >
                       Set stops LONG
@@ -2456,7 +2457,7 @@ useEffect(() => {
                           );
                         }
                       }}
-                      className="px-5 py-2  rounded-lg text-lg font-semibold bg-rose-600/90 hover:bg-rose-600 text-white border border-rose-700/50 transition-colors whitespace-nowrap"
+                      className="px-3 sm:px-5 py-1.5 sm:py-2 rounded-lg text-sm sm:text-lg font-semibold bg-rose-600/90 hover:bg-rose-600 text-white border border-rose-700/50 transition-colors whitespace-nowrap"
                       title="Set stop for all single-leg SHORT positions (HA iloc[-2], interval selected); skips hedge pairs"
                     >
                       Set stops SHORT
@@ -2464,9 +2465,7 @@ useEffect(() => {
                   </div>
                 </div>
               )}
-
-              {/* Right: flexible spacer so center stays visually centered */}
-              <div className="flex-1 min-w-0 max-w-[180px] md:max-w-[200px]" aria-hidden="true" />
+              </div>
             </div>
             <div className="flex min-w-0 w-full max-w-full">
               {/* Sidebar */}
@@ -2616,8 +2615,9 @@ useEffect(() => {
                     />
                     </div>
                   )}
-        {/* Toolbar: layout, font, live flags, assigned count */}
-        <div className="w-full flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2 mb-3 rounded-lg border border-slate-800/80 bg-slate-900/30">
+        {/* Toolbar + SuperTrend (above EMA) */}
+        <div className="w-full mb-3 rounded-lg border border-slate-800/80 bg-slate-900/30 overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Layout</span>
@@ -2745,14 +2745,14 @@ useEffect(() => {
           </button>
         </div>
 
-        {/* Market signals: SuperTrend + EMA — two matching red panels */}
-        <div className="w-full flex flex-col lg:flex-row gap-3 mb-4">
-          <div className="flex-1 min-w-0 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
-            <SuperTrendPanel data={superTrendData} />
-          </div>
-          <div className="flex-[2] min-w-0 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
-            <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
-          </div>
+        <div className="border-t-2 border-red-600 bg-slate-950/90 px-3 py-2 sm:px-4 sm:py-3">
+          <SuperTrendPanel data={superTrendData} />
+        </div>
+        </div>
+
+        {/* EMA Trend — full width below SuperTrend */}
+        <div className="w-full mb-4 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
+          <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
         </div>
 
 

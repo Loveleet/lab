@@ -83,12 +83,12 @@ const TradeFilterPanel = ({
   return (
     <div
       className="w-full min-w-0 grid gap-3"
-      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 200px), 1fr))" }}
+      style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 11rem), 1fr))" }}
     >
       {/* Signal Filter Group */}
       <div className="min-w-0 h-full bg-gradient-to-br from-blue-50 via-white to-blue-100 dark:from-blue-900 dark:via-gray-900 dark:to-blue-950 rounded-2xl shadow-lg border border-blue-200 dark:border-blue-800 p-4 gap-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-blue-700 dark:text-blue-200 hover:scale-105">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative text-blue-700 dark:text-blue-200 leading-tight">
             <span className="mr-2">📡</span> Signal
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-blue-400 via-blue-300 to-blue-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
@@ -167,8 +167,8 @@ const TradeFilterPanel = ({
       </div>
       {/* Machine Filter Group */}
       <div className="min-w-0 h-full bg-gradient-to-br from-green-50 via-white to-green-100 dark:from-green-900 dark:via-gray-900 dark:to-green-950 rounded-2xl shadow-lg border border-green-200 dark:border-green-800 p-4 gap-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-green-700 dark:text-green-200 hover:scale-105">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-green-700 dark:text-green-200">
             <span className="mr-2">🖥️</span> Machine
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-green-400 via-green-300 to-green-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
@@ -257,8 +257,8 @@ const TradeFilterPanel = ({
       </div>
       {/* Interval Filter Group */}
       <div className="min-w-0 h-full bg-gradient-to-br from-purple-50 via-white to-purple-100 dark:from-purple-900 dark:via-gray-900 dark:to-purple-950 rounded-2xl shadow-lg border border-purple-200 dark:border-purple-800 p-4 gap-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-purple-700 dark:text-purple-200 hover:scale-105">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-purple-700 dark:text-purple-200">
             <span className="mr-2">⏱️</span> Interval
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-purple-400 via-purple-300 to-purple-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
@@ -339,8 +339,8 @@ const TradeFilterPanel = ({
       </div>
       {/* Action Filter Group */}
       <div className="min-w-0 h-full bg-gradient-to-br from-pink-50 via-white to-pink-100 dark:from-pink-900 dark:via-gray-900 dark:to-pink-950 rounded-2xl shadow-lg border border-pink-200 dark:border-pink-800 p-4 gap-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-pink-700 dark:text-pink-200 hover:scale-105">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-pink-700 dark:text-pink-200">
             <span className="mr-2">🛒</span> Action
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-pink-400 via-pink-300 to-pink-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
@@ -414,8 +414,8 @@ const TradeFilterPanel = ({
       </div>
       {/* Live Filter Group (exist_in_exchange) */}
       <div className="min-w-0 h-full bg-gradient-to-br from-emerald-50 via-white to-teal-50 dark:from-emerald-900 dark:via-gray-900 dark:to-teal-950 rounded-2xl shadow-lg border border-emerald-200 dark:border-emerald-800 p-4 gap-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-emerald-700 dark:text-emerald-200 hover:scale-105">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-emerald-700 dark:text-emerald-200">
             <span className="mr-2">📡</span> Live
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-emerald-400 via-emerald-300 to-teal-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
@@ -497,8 +497,8 @@ const TradeFilterPanel = ({
       </div>
       {/* CJ Filter Group */}
       <div className="min-w-0 h-full bg-gradient-to-br from-indigo-50 via-white to-indigo-100 dark:from-indigo-900 dark:via-gray-900 dark:to-indigo-950 rounded-2xl shadow-lg border border-indigo-200 dark:border-indigo-800 p-4 gap-2">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-indigo-700 dark:text-indigo-200 hover:scale-105">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-indigo-700 dark:text-indigo-200">
             <span className="mr-2">🧭</span> CJ
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-indigo-400 via-indigo-300 to-indigo-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
@@ -530,7 +530,7 @@ const TradeFilterPanel = ({
       {/* Date Range and Reset */}
       <div className="min-w-0 h-full bg-gradient-to-br from-yellow-50 via-white to-yellow-100 dark:from-yellow-900 dark:via-gray-900 dark:to-yellow-950 rounded-2xl shadow-lg border border-yellow-200 dark:border-yellow-800 p-2 gap-1 justify-start items-stretch">
         <div className="flex items-center gap-2 mb-1">
-          <span className="block text-xl font-extrabold mb-2 tracking-wide relative group transition-transform duration-200 cursor-pointer text-yellow-700 dark:text-yellow-200 hover:scale-105">
+          <span className="text-base sm:text-lg font-extrabold tracking-wide relative leading-tight text-yellow-700 dark:text-yellow-200">
             <span className="mr-2">📅</span> Date & Time
             <span className="absolute left-0 bottom-0 w-full h-1 rounded bg-gradient-to-r from-yellow-400 via-yellow-300 to-yellow-500 opacity-70 group-hover:opacity-100 group-hover:scale-x-110 transition-all"></span>
           </span>
