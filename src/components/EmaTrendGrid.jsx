@@ -97,17 +97,17 @@ function EmaCell({ label, trendText, pct }) {
 
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-lg border px-2 py-2 min-h-[4.25rem] w-full min-w-0 h-full ${shellClass}`}
+      className={`flex flex-col items-center justify-center rounded-lg border px-2 py-2.5 min-h-[5rem] w-full min-w-0 h-full ${shellClass}`}
       title={hasPct ? `${trendText || ""} ${val.toFixed(1)}%`.trim() : trendText || label}
     >
-      <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">{label}</span>
+      <span className="text-base sm:text-lg font-bold uppercase tracking-wide text-yellow-400 mb-1.5">{label}</span>
       {empty ? (
         <span className="text-xs text-slate-600">—</span>
       ) : (
         <div className="flex flex-col items-center justify-center flex-1 w-full">
           {(isBull || isBear) && (
             <span
-              className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${
+              className={`text-xs sm:text-sm font-bold uppercase tracking-wide mb-1 ${
                 isBull ? "text-emerald-400" : "text-red-400"
               }`}
             >
@@ -115,7 +115,7 @@ function EmaCell({ label, trendText, pct }) {
             </span>
           )}
           {hasPct && (
-            <span className={`text-sm font-semibold tabular-nums leading-none ${pctClass}`}>
+            <span className={`text-base sm:text-lg font-bold tabular-nums leading-none ${pctClass}`}>
               {val.toFixed(1)}%
             </span>
           )}

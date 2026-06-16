@@ -2745,13 +2745,13 @@ useEffect(() => {
           </button>
         </div>
 
-        {/* Market signals: SuperTrend + EMA — full width stacked */}
-        <div className="w-full mb-4 rounded-xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 to-slate-950/90 shadow-lg overflow-hidden">
-          <div className="flex flex-col w-full p-3 sm:p-4 gap-3">
+        {/* Market signals: SuperTrend + EMA — two matching red panels */}
+        <div className="w-full flex flex-col lg:flex-row gap-3 mb-4">
+          <div className="flex-1 min-w-0 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
             <SuperTrendPanel data={superTrendData} />
-            <div className="w-full border-t border-slate-700/50 pt-3">
-              <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
-            </div>
+          </div>
+          <div className="flex-[2] min-w-0 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
+            <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
           </div>
         </div>
 
