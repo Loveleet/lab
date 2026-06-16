@@ -2600,8 +2600,6 @@ useEffect(() => {
                       setActionRadioMode={setActionRadioMode}
                       liveFilter={liveFilter}
                       setLiveFilter={setLiveFilter}
-                      cjFilterMode={cjFilterMode}
-                      setCjFilterMode={setCjFilterMode}
                       liveRadioMode={liveRadioMode}
                       setLiveRadioMode={setLiveRadioMode}
                       signalToggleAll={signalToggleAll}
@@ -2717,6 +2715,30 @@ useEffect(() => {
               </div>
             );
           })()}
+          </div>
+
+          <div className="hidden sm:block w-px h-8 bg-red-600/40 shrink-0" aria-hidden />
+
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">CJ</span>
+            {[
+              { id: "true", label: "True" },
+              { id: "false", label: "False" },
+              { id: "both", label: "Both" },
+            ].map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => setCjFilterMode(mode.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition-all ${
+                  cjFilterMode === mode.id
+                    ? "bg-indigo-600 text-white border-indigo-500"
+                    : "bg-slate-800/60 text-slate-300 border-slate-700 hover:bg-indigo-900/40"
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
           </div>
 
           <div className="hidden md:block w-px h-8 bg-red-600/40 shrink-0" aria-hidden />
