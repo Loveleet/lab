@@ -64,10 +64,9 @@ function SuperTrendPanel({ data = [], inline = false }) {
 
   if (inline) {
     return (
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 shrink-0">SuperTrend</span>
+      <div className="flex items-center gap-2 min-w-0 w-full">
         {data.length > 0 && (
-          <span className="text-[10px] text-slate-500 shrink-0 hidden lg:inline">{data.length}</span>
+          <span className="text-[10px] text-slate-500 shrink-0 tabular-nums">{data.length} signals</span>
         )}
         {chips}
       </div>

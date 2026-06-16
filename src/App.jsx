@@ -23,6 +23,7 @@ import GroupViewPage from './pages/GroupViewPage';
 import RefreshControls from './components/RefreshControls';
 import SuperTrendPanel from "./SuperTrendPanel";
 import EmaTrendGrid from "./components/EmaTrendGrid";
+import ToolbarSegment from "./components/ToolbarSegment";
 import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
@@ -2574,7 +2575,7 @@ useEffect(() => {
                     </button>
                   </div>
                   {filterVisible && (
-                    <div className="w-full mb-3">
+                    <div className="w-full mb-5">
                     <TradeFilterPanel
                       selectedSignals={selectedSignals}
                       setSelectedSignals={setSelectedSignals}
@@ -2613,165 +2614,171 @@ useEffect(() => {
                     />
                     </div>
                   )}
-        {/* Toolbar + SuperTrend — single row */}
-        <div className="w-full mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] px-3 py-2 sm:px-4 sm:py-2.5">
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 shrink-0">
-            <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Layout</span>
-            <button
-              type="button"
-              onClick={() => {
-                const newOption = Math.max(1, layoutOption - 1);
-                setLayoutOption(newOption);
-                try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
-              }}
-              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
-              aria-label="Decrease columns"
-            >
-              −
-            </button>
-            <span className="text-sm font-semibold text-slate-200 min-w-[1.25rem] text-center tabular-nums" aria-live="polite">
-              {layoutOption}
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                const newOption = Math.min(14, layoutOption + 1);
-                setLayoutOption(newOption);
-                try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
-              }}
-              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
-              aria-label="Increase columns"
-            >
-              +
-            </button>
-          </div>
-
-          <div className="hidden sm:block w-px h-6 bg-slate-700/80" aria-hidden />
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Font</span>
-            <button
-              onClick={() =>
-                setFontSizeLevel((prev) => {
-                  const newLevel = Math.max(1, prev - 1);
-                  try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
-                  return newLevel;
-                })
-              }
-              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
-              aria-label="Decrease font size"
-            >
-              −
-            </button>
-            <span className="text-sm font-semibold text-slate-200 min-w-[1.25rem] text-center tabular-nums">
-              {fontSizeLevel}
-            </span>
-            <button
-              onClick={() =>
-                setFontSizeLevel((prev) => {
-                  const newLevel = Math.min(30, prev + 1);
-                  try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
-                  return newLevel;
-                })
-              }
-              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
-              aria-label="Increase font size"
-            >
-              +
-            </button>
-          </div>
-
-          <div className="hidden sm:block w-px h-6 bg-slate-700/80" aria-hidden />
-
-          {(() => {
-            const toBool = (v) => {
-              if (v === true || v === "true" || v === 1 || v === "1") return true;
-              if (typeof v === "string") {
-                const n = parseFloat(v);
-                if (!Number.isNaN(n)) return n > 0;
-              }
-              return false;
-            };
-            const buy = toBool(activeLossFlags?.buy ?? activeLossFlags?.buy_condition ?? activeLossFlags?.buyflag);
-            const sell = toBool(activeLossFlags?.sell ?? activeLossFlags?.sell_condition ?? activeLossFlags?.sellflag);
-            const Badge = ({ label, on }) => (
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold uppercase tracking-wide border ${
-                  on
-                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse"
-                    : "bg-slate-800/60 text-slate-500 border-slate-700"
-                }`}
-                title={`${label} condition ${on ? "ACTIVE" : "inactive"}`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${on ? "bg-emerald-400" : "bg-slate-600"}`} />
-                {on ? `Live ${label}` : `${label} off`}
-              </span>
-            );
-            return (
+        {/* Toolbar — grouped segments for clear separation */}
+        <div className="w-full mb-4 rounded-xl border-2 border-slate-600/70 bg-gradient-to-r from-slate-950 via-slate-900/95 to-slate-950 p-3 sm:p-4 shadow-lg">
+          <div className="flex flex-wrap items-stretch gap-3 w-full">
+            <ToolbarSegment label="Layout" tone="cyan">
               <div className="flex items-center gap-2">
-                <Badge label="Buy" on={buy} />
-                <Badge label="Sell" on={sell} />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newOption = Math.max(1, layoutOption - 1);
+                    setLayoutOption(newOption);
+                    try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
+                  }}
+                  className="h-8 w-8 flex items-center justify-center rounded-md bg-cyan-950/60 hover:bg-cyan-900/50 text-cyan-200 text-sm border border-cyan-700/50"
+                  aria-label="Decrease columns"
+                >
+                  −
+                </button>
+                <span className="text-base font-semibold text-cyan-100 min-w-[1.5rem] text-center tabular-nums" aria-live="polite">
+                  {layoutOption}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const newOption = Math.min(14, layoutOption + 1);
+                    setLayoutOption(newOption);
+                    try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
+                  }}
+                  className="h-8 w-8 flex items-center justify-center rounded-md bg-cyan-950/60 hover:bg-cyan-900/50 text-cyan-200 text-sm border border-cyan-700/50"
+                  aria-label="Increase columns"
+                >
+                  +
+                </button>
               </div>
-            );
-          })()}
-          </div>
+            </ToolbarSegment>
 
-          <div className="hidden sm:block w-px h-8 bg-red-600/40 shrink-0" aria-hidden />
+            <ToolbarSegment label="Font" tone="green">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    setFontSizeLevel((prev) => {
+                      const newLevel = Math.max(1, prev - 1);
+                      try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
+                      return newLevel;
+                    })
+                  }
+                  className="h-8 w-8 flex items-center justify-center rounded-md bg-green-950/60 hover:bg-green-900/50 text-green-200 text-sm border border-green-700/50"
+                  aria-label="Decrease font size"
+                >
+                  −
+                </button>
+                <span className="text-base font-semibold text-green-100 min-w-[1.5rem] text-center tabular-nums">
+                  {fontSizeLevel}
+                </span>
+                <button
+                  onClick={() =>
+                    setFontSizeLevel((prev) => {
+                      const newLevel = Math.min(30, prev + 1);
+                      try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
+                      return newLevel;
+                    })
+                  }
+                  className="h-8 w-8 flex items-center justify-center rounded-md bg-green-950/60 hover:bg-green-900/50 text-green-200 text-sm border border-green-700/50"
+                  aria-label="Increase font size"
+                >
+                  +
+                </button>
+              </div>
+            </ToolbarSegment>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">CJ</span>
-            {[
-              { id: "true", label: "True" },
-              { id: "false", label: "False" },
-              { id: "both", label: "Both" },
-            ].map((mode) => (
+            <ToolbarSegment label="Live flags" tone="rose">
+              {(() => {
+                const toBool = (v) => {
+                  if (v === true || v === "true" || v === 1 || v === "1") return true;
+                  if (typeof v === "string") {
+                    const n = parseFloat(v);
+                    if (!Number.isNaN(n)) return n > 0;
+                  }
+                  return false;
+                };
+                const buy = toBool(activeLossFlags?.buy ?? activeLossFlags?.buy_condition ?? activeLossFlags?.buyflag);
+                const sell = toBool(activeLossFlags?.sell ?? activeLossFlags?.sell_condition ?? activeLossFlags?.sellflag);
+                const Badge = ({ label, on, variant }) => (
+                  <span
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide border ${
+                      on
+                        ? variant === "buy"
+                          ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/60 animate-pulse"
+                          : "bg-red-500/25 text-red-200 border-red-400/60 animate-pulse"
+                        : "bg-slate-900/60 text-slate-400 border-slate-600/80"
+                    }`}
+                    title={`${label} condition ${on ? "ACTIVE" : "inactive"}`}
+                  >
+                    <span
+                      className={`w-2 h-2 rounded-full ${
+                        on ? (variant === "buy" ? "bg-emerald-400" : "bg-red-400") : "bg-slate-600"
+                      }`}
+                    />
+                    {on ? `Live ${label}` : `${label} off`}
+                  </span>
+                );
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge label="Buy" on={buy} variant="buy" />
+                    <Badge label="Sell" on={sell} variant="sell" />
+                  </div>
+                );
+              })()}
+            </ToolbarSegment>
+
+            <ToolbarSegment label="CJ" tone="purple">
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { id: "true", label: "True" },
+                  { id: "false", label: "False" },
+                  { id: "both", label: "Both" },
+                ].map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setCjFilterMode(mode.id)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all ${
+                      cjFilterMode === mode.id
+                        ? "bg-purple-600 text-white border-purple-400 shadow-sm shadow-purple-900/40"
+                        : "bg-purple-950/50 text-purple-200 border-purple-700/50 hover:bg-purple-900/40"
+                    }`}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </ToolbarSegment>
+
+            <ToolbarSegment label="SuperTrend" tone="orange" grow className="min-w-[12rem]">
+              <SuperTrendPanel data={superTrendData} inline />
+            </ToolbarSegment>
+
+            <ToolbarSegment label="Assigned new" tone="amber">
               <button
-                key={mode.id}
                 type="button"
-                onClick={() => setCjFilterMode(mode.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition-all ${
-                  cjFilterMode === mode.id
-                    ? "bg-indigo-600 text-white border-indigo-500"
-                    : "bg-slate-800/60 text-slate-300 border-slate-700 hover:bg-indigo-900/40"
-                }`}
+                className="flex items-center gap-3 w-full justify-center rounded-md border border-amber-500/50 bg-amber-950/50 px-3 py-1.5 hover:bg-amber-900/40 transition-colors"
+                title="Click to view Assigned Trades"
+                onClick={() => {
+                  setSelectedBox((prev) => {
+                    const next = prev === "Assigned_New" ? null : "Assigned_New";
+                    if (next) {
+                      setActiveSubReport("assign");
+                      setTimeout(() => {
+                        const section = document.getElementById("tableViewSection");
+                        if (section) section.scrollIntoView({ behavior: "smooth" });
+                      }, 0);
+                    }
+                    return next;
+                  });
+                }}
               >
-                {mode.label}
+                <span className="text-2xl font-bold tabular-nums text-amber-300 leading-none">
+                  {filteredTradeData.filter((trade) => trade.type === "assign" || trade.type === "back_close").length}
+                </span>
               </button>
-            ))}
+            </ToolbarSegment>
           </div>
-
-          <div className="hidden md:block w-px h-8 bg-red-600/40 shrink-0" aria-hidden />
-
-          <SuperTrendPanel data={superTrendData} inline />
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800/50 px-3 py-1.5 hover:bg-slate-800 transition-colors shrink-0 ml-auto"
-            title="Click to view Assigned Trades"
-            onClick={() => {
-              setSelectedBox((prev) => {
-                const next = prev === "Assigned_New" ? null : "Assigned_New";
-                if (next) {
-                  setActiveSubReport("assign");
-                  setTimeout(() => {
-                    const section = document.getElementById("tableViewSection");
-                    if (section) section.scrollIntoView({ behavior: "smooth" });
-                  }, 0);
-                }
-                return next;
-              });
-            }}
-          >
-            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Assigned New</span>
-            <span className="text-lg font-bold tabular-nums text-amber-400 leading-none">
-              {filteredTradeData.filter((trade) => trade.type === "assign" || trade.type === "back_close").length}
-            </span>
-          </button>
         </div>
 
-        {/* EMA Trend — full width below */}
-        <div className="w-full mb-4 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
+        {/* EMA Trend */}
+        <div className="w-full mb-5 rounded-xl border-2 border-violet-500/70 bg-gradient-to-br from-violet-950/50 via-slate-950/95 to-indigo-950/40 p-4 sm:p-5 shadow-[0_0_20px_rgba(139,92,246,0.12)]">
           <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
         </div>
 
