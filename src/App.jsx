@@ -2614,139 +2614,146 @@ useEffect(() => {
                       assignedCount={getFilteredForTitle["Assigned_New"]?.length || 0}
                     />
                   )}
-        <div className="flex flex-wrap items-start gap-3 ml-0 md:ml-6">
-  {/* Controls block */}
-  <div className="flex items-center gap-3 flex-none">
-    <span className="text-sm md:text-base lg:text-lg font-semibold text-black dark:text-white">Layout:</span>
-    <button
-      type="button"
-      onClick={() => {
-        const newOption = Math.max(1, layoutOption - 1);
-        setLayoutOption(newOption);
-        try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
-      }}
-      className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-black dark:text-white px-2 py-1 md:px-3 md:py-1.5 rounded text-sm md:text-base"
-      aria-label="Decrease columns"
-    >
-      ➖
-    </button>
-    <span className="text-sm md:text-base font-medium text-black dark:text-white min-w-[1.5rem] text-center" aria-live="polite">
-      {layoutOption}
-    </span>
-    <button
-      type="button"
-      onClick={() => {
-        const newOption = Math.min(14, layoutOption + 1);
-        setLayoutOption(newOption);
-        try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
-      }}
-      className="bg-gray-300 hover:bg-gray-400 dark:bg-gray-600 dark:hover:bg-gray-500 text-black dark:text-white px-2 py-1 md:px-3 md:py-1.5 rounded text-sm md:text-base"
-      aria-label="Increase columns"
-    >
-      ➕
-    </button>
+        {/* Toolbar: layout, font, live flags, assigned count */}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-2 py-2 mb-3 rounded-lg border border-slate-800/80 bg-slate-900/30">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Layout</span>
+            <button
+              type="button"
+              onClick={() => {
+                const newOption = Math.max(1, layoutOption - 1);
+                setLayoutOption(newOption);
+                try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
+              aria-label="Decrease columns"
+            >
+              −
+            </button>
+            <span className="text-sm font-semibold text-slate-200 min-w-[1.25rem] text-center tabular-nums" aria-live="polite">
+              {layoutOption}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const newOption = Math.min(14, layoutOption + 1);
+                setLayoutOption(newOption);
+                try { localStorage.setItem("layoutOption", String(newOption)); } catch (_) {}
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
+              aria-label="Increase columns"
+            >
+              +
+            </button>
+          </div>
 
-    <span className="hidden md:inline px-2 text-gray-400">|</span>
+          <div className="hidden sm:block w-px h-6 bg-slate-700/80" aria-hidden />
 
-    <div className="flex items-center gap-3">
-      <button
-        onClick={() =>
-          setFontSizeLevel((prev) => {
-            const newLevel = Math.max(1, prev - 1);
-            localStorage.setItem("fontSizeLevel", newLevel);
-            try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
-            return newLevel;
-          })
-        }
-        className="bg-gray-300 hover:bg-gray-400 text-black px-2 py-1 md:px-3 md:py-1.5 rounded text-sm md:text-base"
-        aria-label="Decrease font size"
-      >
-        ➖
-      </button>
-      <span className="text-sm md:text-base lg:text-lg font-semibold text-black">
-        Font: {fontSizeLevel}
-      </span>
-      <button
-        onClick={() =>
-          setFontSizeLevel((prev) => {
-            const newLevel = Math.min(30, prev + 1);
-            localStorage.setItem("fontSizeLevel", newLevel);
-            try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
-            return newLevel;
-          })
-        }
-        className="bg-gray-300 hover:bg-gray-400 text-black px-2 py-1 md:px-3 md:py-1.5 rounded text-sm md:text-base"
-        aria-label="Increase font size"
-      >
-        ➕
-      </button>
-    </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Font</span>
+            <button
+              onClick={() =>
+                setFontSizeLevel((prev) => {
+                  const newLevel = Math.max(1, prev - 1);
+                  try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
+                  return newLevel;
+                })
+              }
+              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
+              aria-label="Decrease font size"
+            >
+              −
+            </button>
+            <span className="text-sm font-semibold text-slate-200 min-w-[1.25rem] text-center tabular-nums">
+              {fontSizeLevel}
+            </span>
+            <button
+              onClick={() =>
+                setFontSizeLevel((prev) => {
+                  const newLevel = Math.min(30, prev + 1);
+                  try { localStorage.setItem("fontSizeLevel", String(newLevel)); } catch (_) {}
+                  return newLevel;
+                })
+              }
+              className="h-7 w-7 flex items-center justify-center rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm border border-slate-700"
+              aria-label="Increase font size"
+            >
+              +
+            </button>
+          </div>
 
-    {/* Live condition badges (BUY/SELL) */}
-    {(() => {
-      const toBool = (v) => {
-        if (v === true || v === "true" || v === 1 || v === "1") return true;
-        if (typeof v === "string") {
-          const n = parseFloat(v);
-          if (!Number.isNaN(n)) return n > 0;
-        }
-        return false;
-      };
-      const buy = toBool(activeLossFlags?.buy ?? activeLossFlags?.buy_condition ?? activeLossFlags?.buyflag);
-      const sell = toBool(activeLossFlags?.sell ?? activeLossFlags?.sell_condition ?? activeLossFlags?.sellflag);
-      const Badge = ({ label, on }) => (
-        <span
-          className={`px-2 py-1 rounded-full text-xs font-bold border ${
-            on
-              ? "bg-green-500/90 text-white border-green-600 animate-pulse ring-2 ring-green-300"
-              : "bg-gray-200 text-gray-700 border-gray-300 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700"
-          }`}
-          title={`${label} condition ${on ? "ACTIVE" : "inactive"}`}
-        >
-          {on ? `LIVE ${label}` : `${label} OFF`}
-        </span>
-      );
-      return (
-        <div className="flex items-center gap-2 ml-1">
-          <Badge label="BUY" on={buy} />
-          <Badge label="SELL" on={sell} />
+          <div className="hidden sm:block w-px h-6 bg-slate-700/80" aria-hidden />
+
+          {(() => {
+            const toBool = (v) => {
+              if (v === true || v === "true" || v === 1 || v === "1") return true;
+              if (typeof v === "string") {
+                const n = parseFloat(v);
+                if (!Number.isNaN(n)) return n > 0;
+              }
+              return false;
+            };
+            const buy = toBool(activeLossFlags?.buy ?? activeLossFlags?.buy_condition ?? activeLossFlags?.buyflag);
+            const sell = toBool(activeLossFlags?.sell ?? activeLossFlags?.sell_condition ?? activeLossFlags?.sellflag);
+            const Badge = ({ label, on }) => (
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold uppercase tracking-wide border ${
+                  on
+                    ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 animate-pulse"
+                    : "bg-slate-800/60 text-slate-500 border-slate-700"
+                }`}
+                title={`${label} condition ${on ? "ACTIVE" : "inactive"}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${on ? "bg-emerald-400" : "bg-slate-600"}`} />
+                {on ? `Live ${label}` : `${label} off`}
+              </span>
+            );
+            return (
+              <div className="flex items-center gap-2">
+                <Badge label="Buy" on={buy} />
+                <Badge label="Sell" on={sell} />
+              </div>
+            );
+          })()}
+
+          <div className="hidden sm:block w-px h-6 bg-slate-700/80" aria-hidden />
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800/50 px-3 py-1.5 hover:bg-slate-800 transition-colors"
+            title="Click to view Assigned Trades"
+            onClick={() => {
+              setSelectedBox((prev) => {
+                const next = prev === "Assigned_New" ? null : "Assigned_New";
+                if (next) {
+                  setActiveSubReport("assign");
+                  setTimeout(() => {
+                    const section = document.getElementById("tableViewSection");
+                    if (section) section.scrollIntoView({ behavior: "smooth" });
+                  }, 0);
+                }
+                return next;
+              });
+            }}
+          >
+            <span className="text-[11px] font-medium uppercase tracking-wide text-slate-400">Assigned New</span>
+            <span className="text-lg font-bold tabular-nums text-amber-400 leading-none">
+              {filteredTradeData.filter((trade) => trade.type === "assign" || trade.type === "back_close").length}
+            </span>
+          </button>
         </div>
-      );
-    })()}
 
-    <span className="text-green-600 text-[14px] md:text-[16px] lg:text-[18px] font-bold">
-      ➤ Assigned New:
-    </span>
-    <span
-      className="text-red-600 text-[24px] md:text-[34px] lg:text-[40px] font-bold cursor-pointer hover:underline"
-      title="Click to view Assigned Trades"
-      onClick={() => {
-        setSelectedBox((prev) => {
-          const next = prev === "Assigned_New" ? null : "Assigned_New";
-          if (next) {
-            setActiveSubReport("assign");
-            setTimeout(() => {
-              const section = document.getElementById("tableViewSection");
-              if (section) section.scrollIntoView({ behavior: "smooth" });
-            }, 0);
-          }
-          return next;
-        });
-      }}
-    >
-      {filteredTradeData.filter((trade) => trade.type === "assign" || trade.type === "back_close").length}
-    </span>
-  </div>
-
-  {/* SuperTrend + EMA group */}
-  <div className="flex flex-col xl:flex-row items-stretch gap-2 flex-1 min-w-0 w-full">
-    <div className="w-full xl:w-[220px] shrink-0 min-w-0">
-      <SuperTrendPanel data={superTrendData} />
-    </div>
-
-    <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
-  </div>
-</div>
+        {/* Market signals: SuperTrend + EMA */}
+        <div className="mb-4 rounded-xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 to-slate-950/90 shadow-lg overflow-hidden">
+          <div className="grid grid-cols-1 xl:grid-cols-12 divide-y xl:divide-y-0 xl:divide-x divide-slate-700/50">
+            <div className="xl:col-span-4 p-3 sm:p-4 min-w-0">
+              <SuperTrendPanel data={superTrendData} />
+            </div>
+            <div className="xl:col-span-8 p-3 sm:p-4 min-w-0">
+              <EmaTrendGrid emaTrends={emaTrends} />
+            </div>
+          </div>
+        </div>
 
 
                   {/* ✅ Dashboard Cards */}

@@ -1,76 +1,76 @@
-
 import React, { useEffect, useState } from "react";
 
-function formatSinceTime(timestamp, now) {
+function formatSinceTimeCompact(timestamp, now) {
   const ts = new Date(timestamp).getTime();
-  let diff = Math.floor((now - ts) / 1000); // in seconds
+  if (Number.isNaN(ts)) return "—";
+  let diff = Math.floor((now - ts) / 1000);
   if (diff < 0) diff = 0;
-  if (diff < 60) return `${diff}s ago`;
-  if (diff < 3600) {
-    const m = Math.floor(diff / 60);
-    const s = diff % 60;
-    return `${m}m ${s}s ago`;
-  }
-  if (diff < 86400) {
-    const h = Math.floor(diff / 3600);
-    const m = Math.floor((diff % 3600) / 60);
-    const s = diff % 60;
-    return `${h}h ${m}m ${s}s ago`;
-  }
-  const d = Math.floor(diff / 86400);
-  const h = Math.floor((diff % 86400) / 3600);
-  const m = Math.floor((diff % 3600) / 60);
-  const s = diff % 60;
-  return `${d}d ${h}h ${m}m ${s}s ago`;
+  if (diff < 60) return `${diff}s`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+  const days = Math.floor(diff / 86400);
+  if (days < 30) return `${days}d`;
+  return `${Math.floor(days / 30)}mo`;
+}
+
+function SuperTrendChip({ row, now }) {
+  const ts = new Date(row.timestamp).getTime();
+  const diff = Number.isNaN(ts) ? 0 : Math.floor((now - ts) / 1000);
+  const fresh = diff < 2700;
+  const trend = String(row.trend || "").toUpperCase();
+  const isBuy = trend === "BUY";
+  const isSell = trend === "SELL";
+
+  const trendClass = isBuy
+    ? "bg-emerald-500/15 text-emerald-400 border-emerald-600/40"
+    : isSell
+    ? "bg-red-500/15 text-red-400 border-red-600/40"
+    : "bg-slate-700/40 text-slate-300 border-slate-600/40";
+
+  return (
+    <div
+      className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 min-w-0 ${
+        fresh ? "border-amber-500/50 bg-amber-500/5" : "border-slate-700/50 bg-slate-800/40"
+      }`}
+      title={`${row.source} ${row.trend} — ${new Date(row.timestamp).toLocaleString()}`}
+    >
+      <span className="text-[11px] font-medium text-slate-300 truncate max-w-[7rem]">{row.source}</span>
+      <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded border shrink-0 ${trendClass}`}>
+        {trend || "—"}
+      </span>
+      <span className={`text-[10px] tabular-nums shrink-0 ml-auto ${fresh ? "text-amber-400 font-medium" : "text-slate-500"}`}>
+        {formatSinceTimeCompact(row.timestamp, now)}
+      </span>
+    </div>
+  );
 }
 
 function SuperTrendPanel({ data = [] }) {
-  // Live clock for updating time ago
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // Detect dark mode from document
-  const [dark, setDark] = useState(() => document.documentElement.classList.contains('dark'));
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setDark(document.documentElement.classList.contains('dark'));
-    });
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    return () => observer.disconnect();
-  }, []);
-
   return (
-    <div className="flex flex-row items-center gap-3 ml-4">
-      {data.length === 0 && (
-        <span className="text-gray-400 text-xs">No SuperTrend signals</span>
+    <div className="min-w-0">
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">SuperTrend</span>
+        {data.length > 0 && (
+          <span className="text-[10px] text-slate-500">{data.length} signal{data.length !== 1 ? "s" : ""}</span>
+        )}
+      </div>
+      {data.length === 0 ? (
+        <p className="text-xs text-slate-600 py-3 text-center rounded-lg border border-dashed border-slate-700/50">
+          No signals
+        </p>
+      ) : (
+        <div className="flex flex-col gap-1.5 max-h-[5.5rem] overflow-y-auto pr-0.5 scrollbar-thin">
+          {data.map((row, i) => (
+            <SuperTrendChip key={`${row.source}-${row.timestamp}-${i}`} row={row} now={now} />
+          ))}
+        </div>
       )}
-      {data.map((row, i) => {
-        const ts = new Date(row.timestamp).getTime();
-        const diff = Math.floor((now - ts) / 1000);
-        const offer = diff < 2700; // 15 min
-        // Theme-aware text color
-        const textColor = dark ? "text-white" : "text-black";
-        // Trend color
-        const trendColor = row.trend && row.trend.toUpperCase() === "BUY" ? "text-green-500" : row.trend && row.trend.toUpperCase() === "SELL" ? "text-red-500" : "";
-        // Border and bg: transparent, no white/gray
-        return (
-          <span
-            key={i}
-            className={`px-2 py-1 rounded border ${offer ? "border-yellow-400 animate-pulse" : "border-gray-500"} flex flex-row items-center gap-1 bg-transparent`}
-            style={{ background: "none" }}
-          >
-            <span className={`font-mono text-blue-400 ${textColor}`}>{row.source}</span>
-            <span className={`font-bold ${trendColor}`}>{row.trend}</span>
-            <span className={offer ? "text-orange-400 font-bold" : textColor}>
-              {formatSinceTime(row.timestamp, now)}
-              {/* OFFER! badge removed as requested */}
-            </span>
-          </span>
-        );
-      })}
     </div>
   );
 }

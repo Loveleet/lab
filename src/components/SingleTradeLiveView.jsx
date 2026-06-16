@@ -3687,7 +3687,9 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       </div>
 
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 space-y-3 sm:space-y-4 min-h-0">
-        <EmaTrendGrid emaTrends={emaTrends} className="mb-3 sm:mb-4" />
+        <div className="rounded-xl border border-slate-700/60 bg-gradient-to-br from-slate-900/90 to-slate-950/90 p-3 sm:p-4">
+          <EmaTrendGrid emaTrends={emaTrends} />
+        </div>
         {sectionOrder.map((id) => {
           if (id === "information") return (
         <section key="information" className="rounded-2xl-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#181a20] overflow-hidden shadow-lg flex-shrink-0 flex flex-col" style={{ minHeight: 200 }}>

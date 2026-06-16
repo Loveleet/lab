@@ -53,12 +53,12 @@ export function resolveEmaInterval(data, aliases) {
 
 function getTimeAgo(lastUpdated) {
   try {
-    if (lastUpdated == null || lastUpdated === "") return "—";
+    if (lastUpdated == null || lastUpdated === "") return null;
     let utcStr = String(lastUpdated).trim();
-    if (!utcStr) return "—";
+    if (!utcStr) return null;
     if (!/Z$|[+-]\d{2}:?\d{2}$/.test(utcStr)) utcStr = utcStr.replace(" ", "T") + "Z";
     const t = new Date(utcStr).getTime();
-    if (Number.isNaN(t)) return "—";
+    if (Number.isNaN(t)) return null;
     const diffMs = Date.now() - t;
     const diffSec = Math.floor(diffMs / 1000);
     const diffMin = Math.floor(diffSec / 60);
@@ -68,73 +68,64 @@ function getTimeAgo(lastUpdated) {
     if (diffHours < 24) return `${diffHours}h`;
     return `${Math.floor(diffHours / 24)}d`;
   } catch {
-    return "—";
+    return null;
   }
 }
 
-function abbrevTrend(trendText) {
-  const t = String(trendText || "").trim().toUpperCase();
-  if (!t) return "";
-  if (t.includes("BULL")) return "BULL";
-  if (t.includes("BEAR")) return "BEAR";
-  return t.length > 5 ? t.slice(0, 5) : t;
-}
-
-function EmaCell({ label, value, trendText, pct }) {
+function EmaCell({ label, trendText, pct }) {
   const val = Number(pct);
   const trend = (trendText || "").toLowerCase();
   const isBull = trend.includes("bull");
   const isBear = trend.includes("bear");
-  const shortTrend = abbrevTrend(trendText);
   const hasPct = pct != null && pct !== "" && !Number.isNaN(val);
   const hot = hasPct && val >= 90;
-  const displayValue = shortTrend && hasPct
-    ? `${shortTrend} ${val.toFixed(1)}%`
-    : shortTrend
-    ? shortTrend
-    : hasPct
-    ? `${val.toFixed(1)}%`
-    : typeof value !== "undefined" && value !== null && String(value).trim() !== ""
-    ? String(value).trim()
-    : "—";
+  const empty = !isBull && !isBear && !hasPct;
 
-  const hotClass = hot
-    ? isBull
-      ? "ring-1 ring-green-400/80 bg-green-950/50"
-      : isBear
-      ? "ring-1 ring-red-400/80 bg-red-950/50"
-      : ""
-    : "";
-
-  const valueClass = shortTrend
+  const shellClass = empty
+    ? "border-slate-700/50 bg-slate-800/30"
+    : isBull
     ? hot
-      ? isBull
-        ? "text-green-400"
-        : isBear
-        ? "text-red-400"
-        : "text-white"
-      : isBull
-      ? "text-green-400"
-      : isBear
-      ? "text-red-400"
-      : "text-slate-100"
-    : "text-slate-300";
+      ? "border-emerald-500/50 bg-emerald-950/40 ring-1 ring-emerald-500/30"
+      : "border-emerald-800/40 bg-emerald-950/20"
+    : isBear
+    ? hot
+      ? "border-red-500/50 bg-red-950/40 ring-1 ring-red-500/30"
+      : "border-red-800/40 bg-red-950/20"
+    : "border-slate-700/50 bg-slate-800/40";
+
+  const pctClass = isBull ? "text-emerald-400" : isBear ? "text-red-400" : "text-slate-400";
 
   return (
     <div
-      className={`flex-shrink-0 w-[4.75rem] sm:w-[5.25rem] rounded border border-blue-800/80 bg-slate-900/90 px-1.5 py-1 ${hotClass}`}
-      title={displayValue}
+      className={`flex flex-col items-center justify-center rounded-lg border px-2 py-2 min-h-[4.25rem] ${shellClass}`}
+      title={hasPct ? `${trendText || ""} ${val.toFixed(1)}%`.trim() : trendText || label}
     >
-      <div className="text-[10px] leading-none text-blue-300/90 font-medium mb-1">{label}</div>
-      <div className={`text-[11px] leading-tight font-semibold whitespace-nowrap ${valueClass}`}>
-        {shortTrend && (isBull || isBear) && <span className="mr-0.5">{isBull ? "▲" : "▼"}</span>}
-        {displayValue}
-      </div>
+      <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500 mb-1">{label}</span>
+      {empty ? (
+        <span className="text-xs text-slate-600">—</span>
+      ) : (
+        <>
+          {(isBull || isBear) && (
+            <span
+              className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${
+                isBull ? "text-emerald-400" : "text-red-400"
+              }`}
+            >
+              {isBull ? "▲ Bull" : "▼ Bear"}
+            </span>
+          )}
+          {hasPct && (
+            <span className={`text-sm font-semibold tabular-nums leading-none ${pctClass}`}>
+              {val.toFixed(1)}%
+            </span>
+          )}
+        </>
+      )}
     </div>
   );
 }
 
-/** Compact scrollable EMA row from /api/pairstatus. */
+/** EMA trend grid from /api/pairstatus. */
 export default function EmaTrendGrid({ emaTrends, className = "" }) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -144,16 +135,24 @@ export default function EmaTrendGrid({ emaTrends, className = "" }) {
   }, [emaTrends]);
 
   const lastUpdatedDisplay = useMemo(() => {
-    if (!emaTrends) return "—";
+    if (!emaTrends) return null;
     const lu = emaTrends.last_updated ?? emaTrends.Last_updated ?? emaTrends.lastUpdated;
     return getTimeAgo(lu);
   }, [emaTrends]);
 
   if (!emaTrends) return null;
+
   return (
-    <div className={`flex-1 min-w-0 overflow-hidden ${className}`.trim()}>
-      <div className="flex gap-1.5 overflow-x-auto pb-0.5 scrollbar-thin">
-        <EmaCell label="Updated" value={lastUpdatedDisplay ?? "—"} />
+    <div className={className}>
+      <div className="flex items-center justify-between gap-2 mb-2.5">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400">EMA Trend</span>
+        {lastUpdatedDisplay && (
+          <span className="text-[10px] text-slate-500 tabular-nums">
+            Updated <span className="text-slate-400">{lastUpdatedDisplay}</span> ago
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
         {EMA_INTERVALS.map(({ label, aliases }) => {
           const { trend, pct } = resolveEmaInterval(emaTrends, aliases);
           return <EmaCell key={label} label={label} trendText={trend} pct={pct} />;
