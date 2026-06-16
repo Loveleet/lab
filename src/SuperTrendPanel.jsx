@@ -45,12 +45,34 @@ function SuperTrendChip({ row, now }) {
   );
 }
 
-function SuperTrendPanel({ data = [] }) {
+function SuperTrendPanel({ data = [], inline = false }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
+
+  const chips = data.length === 0 ? (
+    <span className="text-xs text-slate-600 shrink-0">No signals</span>
+  ) : (
+    <div className="flex flex-nowrap gap-2 min-w-0 flex-1 overflow-x-auto pb-0.5 scrollbar-thin">
+      {data.map((row, i) => (
+        <SuperTrendChip key={`${row.source}-${row.timestamp}-${i}`} row={row} now={now} />
+      ))}
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div className="flex items-center gap-2 min-w-0 flex-1">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-slate-400 shrink-0">SuperTrend</span>
+        {data.length > 0 && (
+          <span className="text-[10px] text-slate-500 shrink-0 hidden lg:inline">{data.length}</span>
+        )}
+        {chips}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col w-full min-w-0 h-full">
@@ -65,11 +87,7 @@ function SuperTrendPanel({ data = [] }) {
           No signals
         </p>
       ) : (
-        <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-0.5 scrollbar-thin">
-          {data.map((row, i) => (
-            <SuperTrendChip key={`${row.source}-${row.timestamp}-${i}`} row={row} now={now} />
-          ))}
-        </div>
+        chips
       )}
     </div>
   );

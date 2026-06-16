@@ -2615,10 +2615,9 @@ useEffect(() => {
                     />
                     </div>
                   )}
-        {/* Toolbar + SuperTrend (above EMA) */}
-        <div className="w-full mb-3 rounded-lg border border-slate-800/80 bg-slate-900/30 overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        {/* Toolbar + SuperTrend — single row */}
+        <div className="w-full mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] px-3 py-2 sm:px-4 sm:py-2.5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 shrink-0">
             <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-slate-400 uppercase tracking-wide">Layout</span>
             <button
@@ -2720,9 +2719,13 @@ useEffect(() => {
           })()}
           </div>
 
+          <div className="hidden md:block w-px h-8 bg-red-600/40 shrink-0" aria-hidden />
+
+          <SuperTrendPanel data={superTrendData} inline />
+
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800/50 px-3 py-1.5 hover:bg-slate-800 transition-colors"
+            className="inline-flex items-center gap-2 rounded-md border border-slate-700 bg-slate-800/50 px-3 py-1.5 hover:bg-slate-800 transition-colors shrink-0 ml-auto"
             title="Click to view Assigned Trades"
             onClick={() => {
               setSelectedBox((prev) => {
@@ -2745,12 +2748,7 @@ useEffect(() => {
           </button>
         </div>
 
-        <div className="border-t-2 border-red-600 bg-slate-950/90 px-3 py-2 sm:px-4 sm:py-3">
-          <SuperTrendPanel data={superTrendData} />
-        </div>
-        </div>
-
-        {/* EMA Trend — full width below SuperTrend */}
+        {/* EMA Trend — full width below */}
         <div className="w-full mb-4 rounded-lg border-2 border-red-600 bg-slate-950/90 shadow-[0_0_12px_rgba(220,38,38,0.25)] p-3 sm:p-4">
           <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
         </div>
