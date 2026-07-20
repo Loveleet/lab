@@ -50,10 +50,32 @@ const cookieParser = require("cookie-parser");
 const { Pool } = require("pg");
 const axios = require('axios');
 const { spawn } = require("child_process");
+const zlib = require("zlib");
 
 const app = express();
 const fs = require("fs");
 const path = require("path");
+
+// Gzip JSON/API responses (closed file is ~18MB uncompressed — critical for speed)
+app.use((req, res, next) => {
+  const accept = String(req.headers["accept-encoding"] || "");
+  if (!accept.includes("gzip")) return next();
+  const originalJson = res.json.bind(res);
+  res.json = (body) => {
+    try {
+      const raw = Buffer.from(JSON.stringify(body));
+      if (raw.length < 1024) return originalJson(body);
+      const gz = zlib.gzipSync(raw, { level: 6 });
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Encoding", "gzip");
+      res.setHeader("Vary", "Accept-Encoding");
+      return res.send(gz);
+    } catch {
+      return originalJson(body);
+    }
+  };
+  next();
+});
 
 const SEP = "────────────────────────────────────────────────────────────";
 function log(msg, level = "INFO") {
@@ -127,7 +149,8 @@ app.use("/logs", (req, res, next) => {
 // ✅ Database Configuration — NO credentials in file. Use DB_* or DATABASE_URL in env.
 function buildDbConfig() {
   const dbHost = process.env.DB_HOST || 'localhost';
-  const host = (dbHost === '150.241.244.130' ? 'localhost' : dbHost);
+  const skipRewrite = String(process.env.SKIP_DB_HOST_REWRITE || '').toLowerCase() === 'true';
+  const host = (!skipRewrite && dbHost === '150.241.244.130' ? 'localhost' : dbHost);
   return {
     host,
     port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -144,7 +167,8 @@ const dbConfig = buildDbConfig();
 // ✅ Connection configs. When DATABASE_URL host is this server's public IP, rewrite to 127.0.0.1.
 function getConnectionConfigs() {
   let databaseUrl = process.env.DATABASE_URL;
-  if (databaseUrl && databaseUrl.includes('150.241.244.130')) {
+  const skipRewrite = String(process.env.SKIP_DB_HOST_REWRITE || '').toLowerCase() === 'true';
+  if (!skipRewrite && databaseUrl && databaseUrl.includes('150.241.244.130')) {
     databaseUrl = databaseUrl.replace(/150\.241\.244\.130/g, '127.0.0.1');
     console.log("[DB] DATABASE_URL host rewritten to 127.0.0.1 (same-machine connection)");
   }
@@ -321,7 +345,7 @@ async function requireAuth(req, res, next) {
 
 // Public paths: no auth (so GitHub Pages can show data). Add signal paths when ALLOW_PUBLIC_READ_SIGNALS.
 const PUBLIC_API_PATHS = ["/api/health", "/api/server-info", "/api/tunnel-url", "/api/alert-rule-books"];
-const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/calculate-signals"];
+const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/calculate-signals"];
 const ALLOW_PUBLIC_READ_SIGNALS = String(process.env.ALLOW_PUBLIC_READ_SIGNALS || "").toLowerCase() === "true";
 const PUBLIC_READ_SIGNAL_PATHS = ["/api/pairstatus", "/api/active-loss", "/api/open-position", "/api/calculate-signals"];
 
@@ -479,6 +503,473 @@ app.get("/api/supertrend", async (req, res) => {
   }
 });
 
+// ── Split trade fetch: running (small, refresh often) vs closed (large, cache + incremental) ──
+const RUNNING_TRADE_TYPES = ["running", "hedge_hold", "assigned", "assign"];
+const CLOSED_TRADE_TYPES = ["close", "hedge_close"];
+const RUNNING_TYPE_LIST = RUNNING_TRADE_TYPES.map((t) => `'${t}'`).join(", ");
+const CLOSED_TYPE_LIST = CLOSED_TRADE_TYPES.map((t) => `'${t}'`).join(", ");
+
+// ── Server-side JSON file for closed trades (persists across login / hard refresh) ──
+const CLOSED_FILE_CACHE_VERSION = 1;
+const CLOSED_TRADES_DIR = path.join(__dirname, "..", "data");
+const CLOSED_TRADES_FILE = path.join(CLOSED_TRADES_DIR, "closed_trades.json");
+const CLOSED_TRADES_META_FILE = path.join(CLOSED_TRADES_DIR, "closed_trades_meta.json");
+const CLOSED_FILE_PAGE_SIZE = 2000;
+
+let closedFileSyncState = { syncing: false, downloaded: 0, total: 0, phase: "idle" };
+
+function ensureClosedTradesDir() {
+  if (!fs.existsSync(CLOSED_TRADES_DIR)) fs.mkdirSync(CLOSED_TRADES_DIR, { recursive: true });
+}
+
+function readClosedTradesMetaFile() {
+  try {
+    if (!fs.existsSync(CLOSED_TRADES_META_FILE)) return null;
+    return JSON.parse(fs.readFileSync(CLOSED_TRADES_META_FILE, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function readClosedTradesFile() {
+  try {
+    if (!fs.existsSync(CLOSED_TRADES_FILE)) return [];
+    const raw = JSON.parse(fs.readFileSync(CLOSED_TRADES_FILE, "utf8"));
+    if (Array.isArray(raw)) return raw;
+    if (raw && Array.isArray(raw.trades)) return raw.trades;
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+function writeClosedTradesFile(trades, meta) {
+  ensureClosedTradesDir();
+  fs.writeFileSync(
+    CLOSED_TRADES_FILE,
+    JSON.stringify({ trades, savedAt: new Date().toISOString() }, null, 0)
+  );
+  if (meta) {
+    fs.writeFileSync(CLOSED_TRADES_META_FILE, JSON.stringify(meta, null, 2));
+  }
+}
+
+function deleteClosedTradesFiles() {
+  try {
+    if (fs.existsSync(CLOSED_TRADES_FILE)) fs.unlinkSync(CLOSED_TRADES_FILE);
+  } catch (_) {}
+  try {
+    if (fs.existsSync(CLOSED_TRADES_META_FILE)) fs.unlinkSync(CLOSED_TRADES_META_FILE);
+  } catch (_) {}
+}
+
+function closedTradeRowKey(t) {
+  const uid = t?.unique_id ?? t?.Unique_ID ?? t?.uid;
+  if (uid != null && String(uid).trim()) return String(uid).trim();
+  return [t?.pair, t?.machineid, t?.candel_time, t?.type, t?.action].join("|");
+}
+
+function mergeClosedTradeRows(existing, incoming) {
+  const map = new Map();
+  for (const t of existing) map.set(closedTradeRowKey(t), t);
+  for (const t of incoming) map.set(closedTradeRowKey(t), t);
+  return [...map.values()];
+}
+
+async function queryDbClosedMeta(pool) {
+  const result = await pool.query(`
+    SELECT COUNT(*)::int AS closed_count,
+           MAX(COALESCE(created_at, candel_time::timestamptz)) AS last_closed_at
+    FROM alltraderecords
+    WHERE type IN (${CLOSED_TYPE_LIST})
+  `);
+  const row = result.rows[0] || {};
+  return {
+    closedCount: row.closed_count ?? 0,
+    lastClosedAt: row.last_closed_at ? new Date(row.last_closed_at).toISOString() : null,
+  };
+}
+
+async function queryClosedTradesPage(pool, page, limit = CLOSED_FILE_PAGE_SIZE) {
+  const offset = (page - 1) * limit;
+  const result = await pool.query(
+    `
+    SELECT * FROM alltraderecords
+    WHERE type IN (${CLOSED_TYPE_LIST})
+    ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+    LIMIT $1 OFFSET $2
+    `,
+    [limit, offset]
+  );
+  return result.rows;
+}
+
+async function queryClosedTradesSince(pool, sinceAt) {
+  const sinceDate = new Date(sinceAt);
+  if (Number.isNaN(sinceDate.getTime())) return [];
+  const result = await pool.query(
+    `
+    SELECT * FROM alltraderecords
+    WHERE type IN (${CLOSED_TYPE_LIST})
+      AND COALESCE(created_at, candel_time::timestamptz) > $1
+    ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+    `,
+    [sinceDate.toISOString()]
+  );
+  return result.rows;
+}
+
+function sameTimestamp(a, b) {
+  if (a == null && b == null) return true;
+  if (a == null || b == null) return false;
+  const ta = new Date(a).getTime();
+  const tb = new Date(b).getTime();
+  return !Number.isNaN(ta) && !Number.isNaN(tb) && ta === tb;
+}
+
+async function ensureClosedTradesFile(pool, { force = false } = {}) {
+  const dbMeta = await queryDbClosedMeta(pool);
+  const fileMeta = readClosedTradesMetaFile();
+  let fileTrades = readClosedTradesFile();
+
+  const upToDate =
+    !force &&
+    fileMeta &&
+    fileTrades.length > 0 &&
+    fileMeta.closedCount === dbMeta.closedCount &&
+    sameTimestamp(fileMeta.lastClosedAt, dbMeta.lastClosedAt);
+
+  if (upToDate) {
+    closedFileSyncState = {
+      syncing: false,
+      downloaded: fileTrades.length,
+      total: dbMeta.closedCount,
+      phase: "ready",
+    };
+    return { trades: fileTrades, meta: fileMeta, fromFile: true, updated: false };
+  }
+
+  closedFileSyncState = {
+    syncing: true,
+    downloaded: 0,
+    total: dbMeta.closedCount,
+    phase: force ? "rebuild" : "sync",
+  };
+
+  const needsFull =
+    force || !fileMeta || fileTrades.length === 0 || dbMeta.closedCount < fileTrades.length;
+
+  if (needsFull) {
+    console.log(`[closed-file] Full rebuild → ${CLOSED_TRADES_FILE} (${dbMeta.closedCount} rows)`);
+    const all = [];
+    let page = 1;
+    while (true) {
+      const batch = await queryClosedTradesPage(pool, page, CLOSED_FILE_PAGE_SIZE);
+      all.push(...batch);
+      closedFileSyncState.downloaded = all.length;
+      if (batch.length < CLOSED_FILE_PAGE_SIZE) break;
+      page += 1;
+    }
+    fileTrades = all;
+  } else {
+    console.log(`[closed-file] Incremental update since ${fileMeta.lastClosedAt}`);
+    const newRows = await queryClosedTradesSince(pool, fileMeta.lastClosedAt);
+    fileTrades = mergeClosedTradeRows(fileTrades, newRows);
+    closedFileSyncState.downloaded = fileTrades.length;
+  }
+
+  const newMeta = {
+    cacheVersion: CLOSED_FILE_CACHE_VERSION,
+    closedCount: dbMeta.closedCount,
+    lastClosedAt: dbMeta.lastClosedAt,
+    lastSyncAt: new Date().toISOString(),
+    storage: "file",
+    filePath: "data/closed_trades.json",
+  };
+  writeClosedTradesFile(fileTrades, newMeta);
+  closedFileSyncState = {
+    syncing: false,
+    downloaded: fileTrades.length,
+    total: dbMeta.closedCount,
+    phase: "ready",
+  };
+  console.log(`[closed-file] Saved ${fileTrades.length} closed trades to JSON file`);
+  return { trades: fileTrades, meta: newMeta, fromFile: true, updated: true };
+}
+
+/** Return file contents immediately; sync DB→file in background when stale. */
+function scheduleClosedFileSync(pool, { force = false } = {}) {
+  if (!pool || closedFileSyncState.syncing) return;
+  ensureClosedTradesFile(pool, { force }).catch((err) =>
+    console.error("[closed-file] Background sync error:", err.message)
+  );
+}
+
+function readClosedTradesFileResponse() {
+  const fileTrades = readClosedTradesFile();
+  const fileMeta = readClosedTradesMetaFile();
+  return {
+    trades: fileTrades,
+    meta: fileMeta,
+    hasFile: fileTrades.length > 0 && !!fileMeta,
+  };
+}
+
+function parseClosedPageLimit(raw, defaultLimit = 2000) {
+  const n = parseInt(raw, 10);
+  if (Number.isNaN(n) || n < 1) return defaultLimit;
+  return Math.min(n, 5000);
+}
+
+// GET /api/trades/meta — counts + last closed timestamp (tiny payload for cache checks)
+app.get("/api/trades/meta", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.json({
+        runningCount: 0,
+        closedCount: 0,
+        lastClosedAt: null,
+        totalCount: 0,
+      });
+    }
+    const result = await pool.query(`
+      SELECT
+        COUNT(*)::int AS total_count,
+        COUNT(*) FILTER (WHERE type IN (${RUNNING_TYPE_LIST}))::int AS running_count,
+        COUNT(*) FILTER (WHERE type IN (${CLOSED_TYPE_LIST}))::int AS closed_count,
+        MAX(COALESCE(created_at, candel_time::timestamptz)) FILTER (WHERE type IN (${CLOSED_TYPE_LIST})) AS last_closed_at
+      FROM alltraderecords
+    `);
+    const row = result.rows[0] || {};
+    res.json({
+      runningCount: row.running_count ?? 0,
+      closedCount: row.closed_count ?? 0,
+      lastClosedAt: row.last_closed_at ? new Date(row.last_closed_at).toISOString() : null,
+      totalCount: row.total_count ?? 0,
+    });
+  } catch (error) {
+    if (isMissingTable(error)) {
+      return res.json({ runningCount: 0, closedCount: 0, lastClosedAt: null, totalCount: 0 });
+    }
+    console.error("❌ [Trades/meta] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to fetch trades meta" });
+  }
+});
+
+// GET /api/trades/running — only active trades (refreshed every poll)
+app.get("/api/trades/running", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.json({ trades: [], _meta: { count: 0, segment: "running" } });
+    }
+    const result = await pool.query(`
+      SELECT * FROM alltraderecords
+      WHERE type IN (${RUNNING_TYPE_LIST})
+    `);
+    res.json({
+      trades: result.rows,
+      _meta: { count: result.rows.length, segment: "running" },
+    });
+  } catch (error) {
+    if (isMissingTable(error)) {
+      return res.json({ trades: [], _meta: { count: 0, segment: "running" } });
+    }
+    console.error("❌ [Trades/running] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to fetch running trades" });
+  }
+});
+
+// GET /api/trades/closed?page=&limit=&since_at= — paginated or incremental closed trades
+app.get("/api/trades/closed", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.json({
+        trades: [],
+        _meta: { count: 0, segment: "closed", page: 1, totalPages: 0, closedCount: 0 },
+      });
+    }
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = parseClosedPageLimit(req.query.limit, 2000);
+    const sinceAt = (req.query.since_at || "").trim();
+    const offset = (page - 1) * limit;
+
+    const countResult = await pool.query(`
+      SELECT COUNT(*)::int AS c FROM alltraderecords WHERE type IN (${CLOSED_TYPE_LIST})
+    `);
+    const closedCount = countResult.rows[0]?.c ?? 0;
+
+    let rows = [];
+    if (sinceAt) {
+      const sinceDate = new Date(sinceAt);
+      if (Number.isNaN(sinceDate.getTime())) {
+        return res.status(400).json({ error: "Invalid since_at" });
+      }
+      const incremental = await pool.query(
+        `
+        SELECT * FROM alltraderecords
+        WHERE type IN (${CLOSED_TYPE_LIST})
+          AND COALESCE(created_at, candel_time::timestamptz) > $1
+        ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+        LIMIT $2
+        `,
+        [sinceDate.toISOString(), limit]
+      );
+      rows = incremental.rows;
+      return res.json({
+        trades: rows,
+        _meta: {
+          count: rows.length,
+          segment: "closed",
+          mode: "incremental",
+          sinceAt,
+          closedCount,
+        },
+      });
+    }
+
+    const paged = await pool.query(
+      `
+      SELECT * FROM alltraderecords
+      WHERE type IN (${CLOSED_TYPE_LIST})
+      ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+      LIMIT $1 OFFSET $2
+      `,
+      [limit, offset]
+    );
+    rows = paged.rows;
+    const totalPages = Math.max(1, Math.ceil(closedCount / limit));
+    res.json({
+      trades: rows,
+      _meta: {
+        count: rows.length,
+        segment: "closed",
+        mode: "paged",
+        page,
+        limit,
+        totalPages,
+        closedCount,
+      },
+    });
+  } catch (error) {
+    if (isMissingTable(error)) {
+      return res.json({
+        trades: [],
+        _meta: { count: 0, segment: "closed", page: 1, totalPages: 0, closedCount: 0 },
+      });
+    }
+    console.error("❌ [Trades/closed] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to fetch closed trades" });
+  }
+});
+
+// GET /api/trades/closed/file/status — JSON file sync progress (for progress bar)
+app.get("/api/trades/closed/file/status", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    const dbMeta = pool ? await queryDbClosedMeta(pool) : { closedCount: 0, lastClosedAt: null };
+    const fileMeta = readClosedTradesMetaFile();
+    const fileTrades = readClosedTradesFile();
+    const percent =
+      closedFileSyncState.total > 0
+        ? Math.min(100, Math.round((closedFileSyncState.downloaded / closedFileSyncState.total) * 100))
+        : fileTrades.length > 0
+          ? 100
+          : 0;
+    res.json({
+      ...closedFileSyncState,
+      percent,
+      fileCount: fileTrades.length,
+      hasFile: fileTrades.length > 0,
+      fileMeta,
+      dbMeta,
+      filePath: "data/closed_trades.json",
+    });
+    // Keep server JSON file in sync in background (browser never waits on this)
+    if (pool && !closedFileSyncState.syncing) {
+      const stale =
+        !fileMeta ||
+        fileTrades.length === 0 ||
+        fileMeta.closedCount !== dbMeta.closedCount ||
+        !sameTimestamp(fileMeta.lastClosedAt, dbMeta.lastClosedAt);
+      if (stale) scheduleClosedFileSync(pool, { force: false });
+    }
+  } catch (error) {
+    console.error("❌ [Trades/closed/file/status] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to read file status" });
+  }
+});
+
+// GET /api/trades/closed/file — closed trades from server JSON file (fast read; background sync if stale)
+app.get("/api/trades/closed/file", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.json({ trades: [], _meta: { count: 0, storage: "file" } });
+    }
+    const force = req.query.force === "1" || req.query.flush === "1";
+    const block = req.query.wait === "1" || force;
+
+    if (!block) {
+      const { trades, meta, hasFile } = readClosedTradesFileResponse();
+      if (hasFile) {
+        scheduleClosedFileSync(pool, { force: false });
+        return res.json({
+          trades,
+          _meta: {
+            count: trades.length,
+            segment: "closed",
+            storage: "file",
+            fromFile: true,
+            updated: false,
+            fast: true,
+            ...meta,
+            syncState: closedFileSyncState,
+          },
+        });
+      }
+    }
+
+    const result = await ensureClosedTradesFile(pool, { force });
+    res.json({
+      trades: result.trades,
+      _meta: {
+        count: result.trades.length,
+        segment: "closed",
+        storage: "file",
+        fromFile: true,
+        updated: result.updated,
+        ...result.meta,
+        syncState: closedFileSyncState,
+      },
+    });
+  } catch (error) {
+    if (isMissingTable(error)) {
+      return res.json({ trades: [], _meta: { count: 0, storage: "file" } });
+    }
+    console.error("❌ [Trades/closed/file] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to read closed trades file" });
+  }
+});
+
+// POST /api/trades/closed/file/flush — delete JSON file and rebuild from DB
+app.post("/api/trades/closed/file/flush", async (req, res) => {
+  try {
+    deleteClosedTradesFiles();
+    closedFileSyncState = { syncing: false, downloaded: 0, total: 0, phase: "idle" };
+    const pool = await poolPromise;
+    if (!pool) return res.json({ ok: true, count: 0 });
+    const result = await ensureClosedTradesFile(pool, { force: true });
+    res.json({ ok: true, count: result.trades.length, _meta: result.meta });
+  } catch (error) {
+    console.error("❌ [Trades/closed/file/flush] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to flush closed trades file" });
+  }
+});
+
 // No LIMIT — return all rows from the configured DB.
 app.get("/api/trades", async (req, res) => {
   try {
@@ -511,6 +1002,35 @@ app.get("/api/trades", async (req, res) => {
     }
     console.error("❌ [Trades] Error:", error);
     res.status(500).json({ error: error.message || "Failed to fetch trades" });
+  }
+});
+
+// GET /api/trade?unique_id= — single trade for Live Trade / Information view
+app.get("/api/trade", async (req, res) => {
+  const uniqueId = req.query.unique_id;
+  if (!uniqueId) {
+    return res.status(400).json({ error: "unique_id query param required" });
+  }
+  const uid = String(Array.isArray(uniqueId) ? uniqueId[0] : uniqueId).trim();
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      const fallback = await fetchFromFallback(`/api/trade?unique_id=${encodeURIComponent(uid)}`);
+      if (fallback && typeof fallback === "object") return res.json(fallback);
+      return res.json({ trade: null });
+    }
+    const result = await pool.query(
+      `SELECT * FROM alltraderecords
+       WHERE TRIM(unique_id::text) = $1
+          OR TRIM(chain_root_unique_id::text) = $1
+       LIMIT 1`,
+      [uid]
+    );
+    res.json({ trade: result.rows[0] || null });
+  } catch (error) {
+    if (isMissingTable(error)) return res.json({ trade: null });
+    console.error("❌ Query Error (/api/trade):", error.message);
+    res.status(500).json({ error: error.message || "Failed to fetch trade" });
   }
 });
 
@@ -599,9 +1119,49 @@ app.get('/api/klines', async (req, res) => {
   }
 });
 
+function getPythonSignalsUrl() {
+  return (process.env.PYTHON_SIGNALS_URL || "http://localhost:5001").replace(/\/$/, "");
+}
+
+async function proxyGetToPython(req, res) {
+  const pythonUrl = getPythonSignalsUrl();
+  try {
+    const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
+    const url = `${pythonUrl}${req.path}${qs}`;
+    const timeoutMs = Number(process.env.PYTHON_PROXY_TIMEOUT_MS) || 60000;
+    const { data, status } = await axios.get(url, { timeout: timeoutMs, validateStatus: () => true });
+    res.status(status || 200).json(data);
+  } catch (err) {
+    console.error(`[${req.path}] Python proxy error:`, err.message);
+    res.status(502).json({ ok: false, message: err.message || "Python signals service unavailable" });
+  }
+}
+
+async function proxyPostToPython(req, res, timeoutMs = 60000) {
+  const pythonUrl = getPythonSignalsUrl();
+  try {
+    const url = `${pythonUrl}${req.path}`;
+    const { data, status } = await axios.post(url, req.body || {}, {
+      headers: { "Content-Type": "application/json" },
+      timeout: timeoutMs,
+      validateStatus: () => true,
+    });
+    res.status(status || 200).json(data);
+  } catch (err) {
+    console.error(`[${req.path}] Python proxy error:`, err.message);
+    res.status(502).json({ ok: false, message: err.message || "Python signals service unavailable" });
+  }
+}
+
+// Python-backed read endpoints (Information + Binance Data sections)
+app.get("/api/open-position", proxyGetToPython);
+app.get("/api/open-orders", proxyGetToPython);
+app.get("/api/futures-balance", proxyGetToPython);
+app.post("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
+
 // ✅ Proxy to Python CalculateSignals API (run python/api_signals.py; set PYTHON_SIGNALS_URL=http://localhost:5001)
 app.post("/api/calculate-signals", async (req, res) => {
-  const pythonUrl = process.env.PYTHON_SIGNALS_URL || "http://localhost:5001";
+  const pythonUrl = getPythonSignalsUrl();
   try {
     console.log("[calculate-signals] Request body:", JSON.stringify(req.body));
     const timeoutMs = Number(process.env.CALCULATE_SIGNALS_TIMEOUT_MS) || 300000; // 5 min default (4 intervals can be slow)
@@ -620,7 +1180,7 @@ app.post("/api/calculate-signals", async (req, res) => {
 
 // ✅ POST /api/trade-management-rule — Proxy to Python (upsert trade_management_rules: profit target, partial stop, hedge price)
 app.post("/api/trade-management-rule", async (req, res) => {
-  const pythonUrl = process.env.PYTHON_SIGNALS_URL || "http://localhost:5001";
+  const pythonUrl = getPythonSignalsUrl();
   try {
     console.log("[DEBUG] trade-management-rule | server received:", req.body && { ...req.body, password: req.body.password ? "***" : undefined });
     const { data, status } = await axios.post(`${pythonUrl}/api/trade-management-rule`, req.body || {}, {

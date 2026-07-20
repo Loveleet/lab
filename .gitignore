@@ -51,3 +51,6 @@ _pycache_/
 # Local
 venv/
 .venv/
+
+# Server-side closed trades JSON (generated at runtime, do not commit)
+data/

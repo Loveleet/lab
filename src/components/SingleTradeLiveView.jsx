@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Play, Settings, Square, Shield, Crosshair, LayoutGrid } from "lucide-react";
 import { formatTradeData } from "./TableView";
 import { LogoutButton, UserEmailDisplay } from "../auth";
-import { API_BASE_URL, api, apiFetch } from "../config";
+import { API_BASE_URL, api, apiFetch, fetchPythonApi } from "../config";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
@@ -2899,24 +2899,34 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   const tradePair = rawTrade?.pair || stripHtml(row.Pair) || getSymbolFromUniqueId(uniqueId) || "";
   const signalSymbol = (tradePair && getRobustSymbol(tradePair)) || getSymbolFromUniqueId(uniqueId) || "BTCUSDT";
   const [signalsData, setSignalsData] = useState(null);
+  const [signalsError, setSignalsError] = useState(null);
   const SIGNAL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
   useEffect(() => {
     if (!signalSymbol) return;
     const callCalculateSignals = async () => {
       try {
-        const res = await apiFetch(api("/api/calculate-signals"), {
+        const res = await fetchPythonApi("/api/calculate-signals", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ symbol: signalSymbol, candle: "regular" }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          console.warn("[CalculateSignals]", data?.message || res.statusText);
+          const msg = data?.message || res.statusText || "Signals service unavailable";
+          setSignalsError(msg);
+          console.warn("[CalculateSignals]", msg);
           return;
         }
-        if (data?.ok && data?.intervals) setSignalsData(data);
+        if (data?.ok && data?.intervals) {
+          setSignalsData(data);
+          setSignalsError(null);
+        } else {
+          setSignalsError(data?.message || "No signal data returned");
+        }
       } catch (e) {
-        console.warn("[CalculateSignals]", e?.message || e);
+        const msg = e?.message || String(e);
+        setSignalsError(msg);
+        console.warn("[CalculateSignals]", msg);
       }
     };
     callCalculateSignals(); // run once on mount / when pair changes
@@ -2989,7 +2999,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     }
     const fetchOpenPosition = async () => {
       try {
-        const res = await apiFetch(api(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}`));
+        const res = await fetchPythonApi(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}`);
         const data = await res.json().catch(() => ({}));
         if (data?.ok) setExchangePositionData(data);
         else setExchangePositionData({ ok: false, error: data?.message || "Failed to fetch" });
@@ -3010,7 +3020,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     }
     const fetchOpenOrders = async () => {
       try {
-        const res = await apiFetch(api(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}`));
+        const res = await fetchPythonApi(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}`);
         const data = await res.json().catch(() => ({}));
         setOpenOrdersData(data?.ok ? data : { orders: [] });
       } catch {
@@ -3026,7 +3036,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   useEffect(() => {
     const fetchFuturesBalance = async () => {
       try {
-        const res = await apiFetch(api("/api/futures-balance"));
+        const res = await fetchPythonApi("/api/futures-balance");
         const data = await res.json().catch(() => ({}));
         if (data?.ok && typeof data?.availableBalance === "number") setFuturesBalance(data.availableBalance);
         else setFuturesBalance(null);
@@ -3985,6 +3995,12 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                       </table>
                     );
                   })()
+                ) : signalsError ? (
+                  <div className="flex flex-col items-center justify-center h-full text-amber-700 dark:text-amber-300 text-center p-3 gap-1">
+                    <div className="font-semibold text-sm">Signals unavailable</div>
+                    <div className="text-xs opacity-90">{signalsError}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Start api_signals.py on port 5001, or restart api-signals on the cloud server.</div>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center h-full text-gray-500 dark:text-white text-center p-2">Loading signals…</div>
                 )}

@@ -56,6 +56,12 @@ export async function loginWithCredentials(email, password) {
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({ email: em, password: pw }),
+  }).catch((err) => {
+    throw new Error(
+      err?.message?.includes("fetch")
+        ? "Cannot reach API server. Restart npm run dev and use the URL it prints (5173 or 5174)."
+        : err?.message || "Network error"
+    );
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || "Invalid credentials");

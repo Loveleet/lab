@@ -207,3 +207,21 @@ export function apiSignalsFetch(pathOrUrl, opts = {}) {
   const url = typeof pathOrUrl === "string" && pathOrUrl.startsWith("http") ? pathOrUrl : apiSignals(pathOrUrl);
   return fetch(url, { ...opts, credentials: "omit" });
 }
+
+function isLocalDevHost() {
+  return typeof window !== "undefined" && (window.location?.hostname === "localhost" || window.location?.hostname === "127.0.0.1");
+}
+
+/** Python-backed endpoints: try local Python on localhost, else Node proxy (cloud dev or production). */
+export async function fetchPythonApi(path, opts = {}) {
+  if (isLocalDevHost()) {
+    try {
+      const direct = await apiSignalsFetch(path, opts);
+      if (direct.ok) return direct;
+      if (direct.status > 0 && direct.status !== 502 && direct.status !== 503) return direct;
+    } catch (_) {
+      // local Python not running — fall through to Node proxy
+    }
+  }
+  return apiFetch(api(path), opts);
+}

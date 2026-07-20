@@ -7,7 +7,7 @@ function parseDurationToSeconds(input) {
   if (!str) return null;
   // Support HH:MM:SS or MM:SS or SS
   if (/^\d{1,2}(:\d{1,2}){0,2}$/.test(str)) {
-    const parts = str.split(':').map(p => parseInt(p, 10) || 0);
+    const parts = str.split(':').map((p) => parseInt(p, 10) || 0);
     if (parts.length === 3) {
       const [h, m, s] = parts;
       return h * 3600 + m * 60 + s;
@@ -50,6 +50,14 @@ function formatSmartDuration(seconds) {
   return `${h}h ${m}m ${sec}s`;
 }
 
+const PRESETS = [
+  { label: '30s', sec: 30 },
+  { label: '1m', sec: 60 },
+  { label: '2m', sec: 120 },
+  { label: '5m', sec: 300 },
+  { label: '10m', sec: 600 },
+];
+
 export default function RefreshControls({
   onRefresh,
   storageKey = 'default',
@@ -78,18 +86,27 @@ export default function RefreshControls({
   const [lastRefreshTs, setLastRefreshTs] = React.useState(() => Date.now());
   const [tick, setTick] = React.useState(0);
   const [isRefreshing, setIsRefreshing] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [draftInterval, setDraftInterval] = React.useState('');
+  const [settingsError, setSettingsError] = React.useState('');
+  const settingsRef = React.useRef(null);
+  const inputRef = React.useRef(null);
 
   React.useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 1000);
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
   React.useEffect(() => {
-    try { localStorage.setItem(`refresh_${storageKey}_autoOn`, JSON.stringify(autoOn)); } catch {}
+    try {
+      localStorage.setItem(`refresh_${storageKey}_autoOn`, JSON.stringify(autoOn));
+    } catch {}
   }, [autoOn, storageKey]);
 
   React.useEffect(() => {
-    try { localStorage.setItem(`refresh_${storageKey}_intervalSec`, String(intervalSec)); } catch {}
+    try {
+      localStorage.setItem(`refresh_${storageKey}_intervalSec`, String(intervalSec));
+    } catch {}
   }, [intervalSec, storageKey]);
 
   React.useEffect(() => {
@@ -102,12 +119,32 @@ export default function RefreshControls({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, autoOn, intervalSec]);
 
+  React.useEffect(() => {
+    if (!settingsOpen) return;
+    setDraftInterval(String(intervalSec));
+    setSettingsError('');
+    const t = setTimeout(() => inputRef.current?.focus(), 50);
+    const onDoc = (e) => {
+      if (settingsRef.current && !settingsRef.current.contains(e.target)) {
+        setSettingsOpen(false);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') setSettingsOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [settingsOpen, intervalSec]);
+
   const triggerRefresh = async () => {
-    if (isRefreshing) return; // Prevent multiple simultaneous refreshes
-    
+    if (isRefreshing) return;
     setIsRefreshing(true);
-    setLastRefreshTs(Date.now()); // Update timestamp immediately for visual feedback
-    
+    setLastRefreshTs(Date.now());
     try {
       await Promise.resolve(onRefresh && onRefresh());
     } catch (e) {
@@ -128,21 +165,23 @@ export default function RefreshControls({
     return Math.max(0, Math.floor((Date.now() - lastRefreshTs) / 1000));
   }, [autoOn, lastRefreshTs, tick]);
 
-  const onClickSettings = () => {
-    const input = prompt('Set auto refresh interval (e.g., 45, 90s, 2m, 1h 5m, or HH:MM:SS):', String(intervalSec));
-    if (input == null) return;
-    const seconds = parseDurationToSeconds(input);
+  const applyInterval = (raw) => {
+    const seconds = parseDurationToSeconds(raw);
     if (seconds == null || seconds <= 0) {
-      alert('Please enter a valid time greater than 0.');
-      return;
+      setSettingsError('Enter a time > 0 (e.g. 45, 90s, 2m, 1h 5m)');
+      return false;
     }
     setIntervalSec(seconds);
+    setSettingsError('');
+    setSettingsOpen(false);
+    return true;
   };
 
   const containerStyle = {
     display: 'flex',
     alignItems: 'center',
     gap: 8,
+    position: 'relative',
     ...style,
   };
   const btnStyle = {
@@ -155,11 +194,12 @@ export default function RefreshControls({
   };
 
   return (
-    <div className={className} style={containerStyle}>
+    <div className={className} style={containerStyle} ref={settingsRef}>
       <button
+        type="button"
         onClick={triggerRefresh}
         disabled={isRefreshing}
-        title={isRefreshing ? 'Refreshing...' : (autoOn ? 'Click to refresh now' : 'Click to refresh')}
+        title={isRefreshing ? 'Refreshing...' : autoOn ? 'Click to refresh now' : 'Click to refresh'}
         style={{
           ...btnStyle,
           background: isRefreshing ? '#fbbf24' : '#e5e7eb',
@@ -171,7 +211,8 @@ export default function RefreshControls({
         {isRefreshing ? '⟳' : '⟲'} {autoOn ? formatSmartDuration(remainingSec) : formatSmartDuration(elapsedSec)}
       </button>
       <button
-        onClick={() => setAutoOn(v => !v)}
+        type="button"
+        onClick={() => setAutoOn((v) => !v)}
         title="Auto Refresh"
         style={{
           ...btnStyle,
@@ -183,17 +224,115 @@ export default function RefreshControls({
         {autoOn ? 'Auto: ON' : 'Auto: OFF'}
       </button>
       <button
-        onClick={onClickSettings}
+        type="button"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          setSettingsOpen((open) => !open);
+        }}
         title={`Set interval (current: ${formatSmartDuration(intervalSec)})`}
+        aria-expanded={settingsOpen}
+        aria-label="Refresh interval settings"
         style={{
           ...btnStyle,
           padding: '6px 8px',
           borderRadius: 999,
+          background: settingsOpen ? '#dbeafe' : '#f3f4f6',
+          borderColor: settingsOpen ? '#93c5fd' : '#d1d5db',
         }}
       >
         ⚙️
       </button>
+
+      {settingsOpen && (
+        <div
+          role="dialog"
+          aria-label="Refresh interval"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 8px)',
+            left: 0,
+            zIndex: 100,
+            minWidth: 260,
+            padding: 12,
+            borderRadius: 12,
+            border: '1px solid #d1d5db',
+            background: '#fff',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+            color: '#111827',
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8 }}>
+            Auto refresh interval
+          </div>
+          <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 8 }}>
+            Current: <strong>{formatSmartDuration(intervalSec)}</strong>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+            {PRESETS.map((p) => (
+              <button
+                key={p.sec}
+                type="button"
+                onClick={() => applyInterval(p.sec)}
+                style={{
+                  ...btnStyle,
+                  padding: '4px 8px',
+                  fontSize: 12,
+                  background: intervalSec === p.sec ? '#2563eb' : '#f3f4f6',
+                  color: intervalSec === p.sec ? '#fff' : '#111827',
+                  borderColor: intervalSec === p.sec ? '#2563eb' : '#d1d5db',
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              applyInterval(draftInterval);
+            }}
+            style={{ display: 'flex', gap: 6 }}
+          >
+            <input
+              ref={inputRef}
+              type="text"
+              value={draftInterval}
+              onChange={(e) => {
+                setDraftInterval(e.target.value);
+                setSettingsError('');
+              }}
+              placeholder="e.g. 90s, 2m, 1:30"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '6px 8px',
+                borderRadius: 8,
+                border: '1px solid #d1d5db',
+                fontSize: 13,
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                ...btnStyle,
+                background: '#2563eb',
+                color: '#fff',
+                borderColor: '#2563eb',
+              }}
+            >
+              Set
+            </button>
+          </form>
+          {settingsError ? (
+            <div style={{ marginTop: 8, fontSize: 11, color: '#dc2626' }}>{settingsError}</div>
+          ) : (
+            <div style={{ marginTop: 8, fontSize: 10, color: '#9ca3af' }}>
+              Accepts seconds, 90s, 2m, 1h 5m, or MM:SS
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
-

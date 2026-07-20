@@ -27,6 +27,7 @@ import ToolbarSegment from "./components/ToolbarSegment";
 import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
+import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, loadClosedFromLocalCache } from "./tradesCache";
 
 function tradeSignalFrom(trade) {
   return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
@@ -209,6 +210,11 @@ const App = () => {
   const [metrics, setMetrics] = useState(null);
   const [selectedBox, setSelectedBox] = useState(null);
   const [tradeData, setTradeData] = useState([]);
+  const [closedCacheProgress, setClosedCacheProgress] = useState(null);
+  const [closedCacheStats, setClosedCacheStats] = useState(null);
+  const forceFullClosedRef = useRef(false);
+  const closedTradesRef = useRef([]);
+  const closedMetaRef = useRef(null);
   const [demoDataHint, setDemoDataHint] = useState(null); // when API returns _meta.demoData, show hint instead of demo rows
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedError, setSeedError] = useState(null);
@@ -513,19 +519,76 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
     }
     try {
       setApiUnreachable(false);
-      // Sync Binance open positions to DB before fetching trades (so fresh data shows on load/refresh)
-      try {
-        await apiFetch("/api/sync-open-positions").catch(() => {});
-      } catch (_) {}
-      const tradeRes = await apiFetch("/api/trades");
+      // Non-blocking: sync exchange positions in background (don't delay dashboard load)
+      apiFetch("/api/sync-open-positions").catch(() => {});
+
       let trades = [];
-      if (tradeRes.status === 401) {
-        setLoggedIn(false);
-      } else {
-        const tradeJson = tradeRes.ok ? await tradeRes.json() : { trades: [] };
-        trades = Array.isArray(tradeJson.trades) ? tradeJson.trades : [];
-        console.log("[DEBUG] Trades received:", trades.length, "rows");
-        setDemoDataHint(tradeJson._meta?.demoData ? tradeJson._meta.hint || null : null);
+      try {
+        setClosedCacheProgress({ phase: "start", percent: 0, message: "Loading trades…" });
+        const tradeResult = await fetchTradesSmart({
+          forceFullClosed: forceFullClosedRef.current,
+          cachedClosed: closedTradesRef.current,
+          cachedMeta: closedMetaRef.current,
+          onProgress: (p) => setClosedCacheProgress(p),
+          // Show cached closed immediately while running/meta fetch is in flight
+          onEarlyData: (closed, meta) => {
+            closedTradesRef.current = closed;
+            if (meta) closedMetaRef.current = meta;
+            setTradeData((prev) => {
+              const running = (prev || []).filter((t) => {
+                const ty = String(t?.type ?? "");
+                return ty === "running" || ty === "hedge_hold" || ty === "assigned" || ty === "assign";
+              });
+              return mergeRunningAndClosed(running, closed);
+            });
+          },
+          onRunning: (running, closedFromCache) => {
+            const closed = (closedFromCache?.length ? closedFromCache : closedTradesRef.current) || [];
+            if (closed.length > 0 || running.length > 0) {
+              setTradeData(mergeRunningAndClosed(running, closed));
+            }
+          },
+          // First-load pages: show closed as soon as each page arrives
+          onClosedPage: (partialClosed, running) => {
+            closedTradesRef.current = partialClosed;
+            setTradeData(mergeRunningAndClosed(running || [], partialClosed));
+          },
+        });
+        forceFullClosedRef.current = false;
+
+        if (tradeResult.authRequired) {
+          setLoggedIn(false);
+        } else {
+          trades = Array.isArray(tradeResult.trades) ? tradeResult.trades : [];
+          closedTradesRef.current = Array.isArray(tradeResult.closed) ? tradeResult.closed : [];
+          if (tradeResult.meta) closedMetaRef.current = tradeResult.meta;
+          console.log(
+            "[DEBUG] Trades received:",
+            trades.length,
+            "rows",
+            tradeResult.stats?.closedMode || (tradeResult.legacy ? "legacy" : "smart"),
+            tradeResult.stats?.closedSkipped ? "(closed skipped)" : ""
+          );
+          setDemoDataHint(tradeResult.demoHint || null);
+          if (tradeResult.stats) setClosedCacheStats(tradeResult.stats);
+          // Paint final merge immediately — don't wait for supertrend/pairstatus/etc.
+          setTradeData(trades);
+        }
+      } catch (tradeErr) {
+        console.error("[tradesCache] Smart fetch failed, trying legacy /api/trades:", tradeErr);
+        forceFullClosedRef.current = false;
+        const tradeRes = await apiFetch("/api/trades");
+        if (tradeRes.status === 401) {
+          setLoggedIn(false);
+        } else {
+          const tradeJson = tradeRes.ok ? await tradeRes.json() : { trades: [] };
+          trades = Array.isArray(tradeJson.trades) ? tradeJson.trades : [];
+          console.log("[DEBUG] Trades received (fallback):", trades.length, "rows");
+          setDemoDataHint(tradeJson._meta?.demoData ? tradeJson._meta.hint || null : null);
+          setTradeData(trades);
+        }
+      } finally {
+        setClosedCacheProgress(null);
       }
 
       // Use base path so logs.json works on GitHub Pages (e.g. /lab_live/logs.json)
@@ -652,9 +715,50 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
     }
   }, [toMachineKey]);
 
+  const handleFlushClosedCache = useCallback(async () => {
+    const ok = window.confirm(
+      "Delete the server closed-trades JSON file and rebuild it from the database?"
+    );
+    if (!ok) return;
+    await flushClosedCache();
+    closedTradesRef.current = [];
+    closedMetaRef.current = null;
+    setClosedCacheStats(null);
+    forceFullClosedRef.current = true;
+    refreshAllData();
+  }, [refreshAllData]);
+
+  // Instant paint from IndexedDB closed cache (before network)
+  useEffect(() => {
+    let cancelled = false;
+    loadClosedFromLocalCache().then((local) => {
+      if (cancelled || !local?.trades?.length) return;
+      closedTradesRef.current = local.trades;
+      closedMetaRef.current = local.meta;
+      setTradeData((prev) => mergeRunningAndClosed(prev || [], local.trades));
+      setClosedCacheStats({
+        closedCount: local.meta?.closedCount ?? local.trades.length,
+        runningCount: "—",
+        fromFile: true,
+        fromIndexedDb: true,
+        closedSkipped: true,
+        closedMode: "cache",
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     refreshAllData();
   }, [refreshAllData]);
+
+  // After login (or restored session), fetch trades — mount refresh often runs before the session cookie exists
+  useEffect(() => {
+    if (authChecking || !isLoggedIn) return;
+    refreshAllData();
+  }, [isLoggedIn, authChecking, refreshAllData]);
 
   // When api-config.json loads (fixed API URL), refresh data
   useEffect(() => {
@@ -2155,6 +2259,50 @@ useEffect(() => {
                   initialIntervalSec={120}
                   initialAutoOn={false}
                 />
+                <div className="flex flex-col gap-1 min-w-[9rem] max-w-[11rem]">
+                  {closedCacheProgress && (
+                    <div className="text-[10px] text-gray-600 dark:text-gray-400">
+                      <div className="flex justify-between gap-1 mb-0.5">
+                        <span className="truncate">
+                          {closedCacheProgress.message ||
+                            (closedCacheProgress.phase === "download"
+                              ? `Closed ${closedCacheProgress.downloaded ?? 0}/${closedCacheProgress.total ?? "?"}`
+                              : closedCacheProgress.phase)}
+                        </span>
+                        <span className="shrink-0">{closedCacheProgress.percent ?? 0}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-blue-500 transition-all duration-300"
+                          style={{ width: `${Math.min(100, closedCacheProgress.percent ?? 0)}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {!closedCacheProgress && closedCacheStats && (
+                    <span className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+                      {closedCacheStats.closedCount} closed
+                      {closedCacheStats.closedSkipped || closedCacheStats.closedMode === "cache"
+                        ? " · cached"
+                        : closedCacheStats.closedMode === "incremental"
+                          ? " · +new only"
+                          : closedCacheStats.fromIndexedDb
+                            ? " · IndexedDB"
+                            : " · file"}
+                      {" · "}
+                      {closedCacheStats.runningCount ?? "—"} running
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleFlushClosedCache}
+                    disabled={!!closedCacheProgress}
+                    className="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+                    title="Delete server closed-trades JSON file and rebuild from database"
+                  >
+                    Flush closed file
+                  </button>
+                </div>
                 <h1
                   className="text-3xl md:text-4xl font-extrabold bg-gradient-to-r from-blue-500 via-pink-500 to-yellow-400 bg-clip-text text-transparent drop-shadow-lg tracking-tight flex-shrink-0"
                 style={{
