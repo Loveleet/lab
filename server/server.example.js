@@ -509,10 +509,11 @@ const CLOSED_TRADE_TYPES = ["close", "hedge_close"];
 const RUNNING_TYPE_LIST = RUNNING_TRADE_TYPES.map((t) => `'${t}'`).join(", ");
 const CLOSED_TYPE_LIST = CLOSED_TRADE_TYPES.map((t) => `'${t}'`).join(", ");
 
-// ── Server-side JSON file for closed trades (persists across login / hard refresh) ──
-const CLOSED_FILE_CACHE_VERSION = 1;
+// ── Server-side closed trades file (JSONL = append new closes without rewriting all) ──
+const CLOSED_FILE_CACHE_VERSION = 2;
 const CLOSED_TRADES_DIR = path.join(__dirname, "..", "data");
-const CLOSED_TRADES_FILE = path.join(CLOSED_TRADES_DIR, "closed_trades.json");
+const CLOSED_TRADES_FILE = path.join(CLOSED_TRADES_DIR, "closed_trades.json"); // legacy
+const CLOSED_TRADES_JSONL = path.join(CLOSED_TRADES_DIR, "closed_trades.jsonl");
 const CLOSED_TRADES_META_FILE = path.join(CLOSED_TRADES_DIR, "closed_trades_meta.json");
 const CLOSED_FILE_PAGE_SIZE = 2000;
 
@@ -531,32 +532,100 @@ function readClosedTradesMetaFile() {
   }
 }
 
+function writeClosedTradesMetaFile(meta) {
+  ensureClosedTradesDir();
+  fs.writeFileSync(CLOSED_TRADES_META_FILE, JSON.stringify(meta, null, 2));
+}
+
+/** Read closed trades: prefer JSONL (append-friendly); fall back to legacy JSON once. */
 function readClosedTradesFile() {
   try {
-    if (!fs.existsSync(CLOSED_TRADES_FILE)) return [];
-    const raw = JSON.parse(fs.readFileSync(CLOSED_TRADES_FILE, "utf8"));
-    if (Array.isArray(raw)) return raw;
-    if (raw && Array.isArray(raw.trades)) return raw.trades;
+    if (fs.existsSync(CLOSED_TRADES_JSONL)) {
+      const text = fs.readFileSync(CLOSED_TRADES_JSONL, "utf8");
+      if (!text.trim()) return [];
+      const trades = [];
+      for (const line of text.split("\n")) {
+        const s = line.trim();
+        if (!s) continue;
+        try {
+          trades.push(JSON.parse(s));
+        } catch (_) {}
+      }
+      return trades;
+    }
+    if (fs.existsSync(CLOSED_TRADES_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(CLOSED_TRADES_FILE, "utf8"));
+      if (Array.isArray(raw)) return raw;
+      if (raw && Array.isArray(raw.trades)) return raw.trades;
+    }
     return [];
   } catch {
     return [];
   }
 }
 
-function writeClosedTradesFile(trades, meta) {
-  ensureClosedTradesDir();
-  fs.writeFileSync(
-    CLOSED_TRADES_FILE,
-    JSON.stringify({ trades, savedAt: new Date().toISOString() }, null, 0)
+function closedFileExists() {
+  return (
+    (fs.existsSync(CLOSED_TRADES_JSONL) && fs.statSync(CLOSED_TRADES_JSONL).size > 0) ||
+    (fs.existsSync(CLOSED_TRADES_FILE) && fs.statSync(CLOSED_TRADES_FILE).size > 0)
   );
-  if (meta) {
-    fs.writeFileSync(CLOSED_TRADES_META_FILE, JSON.stringify(meta, null, 2));
+}
+
+/** One-time: convert legacy closed_trades.json → jsonl without re-querying DB. */
+function migrateLegacyClosedJsonToJsonl() {
+  if (fs.existsSync(CLOSED_TRADES_JSONL) && fs.statSync(CLOSED_TRADES_JSONL).size > 0) return false;
+  if (!fs.existsSync(CLOSED_TRADES_FILE)) return false;
+  const trades = readClosedTradesFile();
+  if (!trades.length) return false;
+  const fileMeta = readClosedTradesMetaFile() || {};
+  const meta = {
+    ...fileMeta,
+    cacheVersion: CLOSED_FILE_CACHE_VERSION,
+    closedCount: fileMeta.closedCount ?? trades.length,
+    storage: "jsonl",
+    filePath: "data/closed_trades.jsonl",
+    mode: "migrated",
+    lastSyncAt: new Date().toISOString(),
+  };
+  writeClosedTradesFileFull(trades, meta);
+  console.log(`[closed-file] Migrated ${trades.length} rows from JSON → JSONL (append-ready)`);
+  return true;
+}
+
+/** Full rewrite (first build / flush only). Writes JSONL + meta; removes legacy JSON. */
+function writeClosedTradesFileFull(trades, meta) {
+  ensureClosedTradesDir();
+  const body = trades.map((t) => JSON.stringify(t)).join("\n") + (trades.length ? "\n" : "");
+  fs.writeFileSync(CLOSED_TRADES_JSONL, body);
+  if (meta) writeClosedTradesMetaFile(meta);
+  try {
+    if (fs.existsSync(CLOSED_TRADES_FILE)) fs.unlinkSync(CLOSED_TRADES_FILE);
+  } catch (_) {}
+}
+
+/** Append only newly closed rows — does not rewrite existing file contents. */
+function appendClosedTradesToFile(newRows, meta) {
+  if (!newRows || newRows.length === 0) {
+    if (meta) writeClosedTradesMetaFile(meta);
+    return;
   }
+  ensureClosedTradesDir();
+  // Migrate legacy JSON → JSONL once before appending
+  if (!fs.existsSync(CLOSED_TRADES_JSONL) && fs.existsSync(CLOSED_TRADES_FILE)) {
+    const existing = readClosedTradesFile();
+    writeClosedTradesFileFull(existing, meta);
+  }
+  const chunk = newRows.map((t) => JSON.stringify(t)).join("\n") + "\n";
+  fs.appendFileSync(CLOSED_TRADES_JSONL, chunk);
+  if (meta) writeClosedTradesMetaFile(meta);
 }
 
 function deleteClosedTradesFiles() {
   try {
     if (fs.existsSync(CLOSED_TRADES_FILE)) fs.unlinkSync(CLOSED_TRADES_FILE);
+  } catch (_) {}
+  try {
+    if (fs.existsSync(CLOSED_TRADES_JSONL)) fs.unlinkSync(CLOSED_TRADES_JSONL);
   } catch (_) {}
   try {
     if (fs.existsSync(CLOSED_TRADES_META_FILE)) fs.unlinkSync(CLOSED_TRADES_META_FILE);
@@ -628,6 +697,7 @@ function sameTimestamp(a, b) {
 }
 
 async function ensureClosedTradesFile(pool, { force = false } = {}) {
+  migrateLegacyClosedJsonToJsonl();
   const dbMeta = await queryDbClosedMeta(pool);
   const fileMeta = readClosedTradesMetaFile();
   let fileTrades = readClosedTradesFile();
@@ -656,11 +726,16 @@ async function ensureClosedTradesFile(pool, { force = false } = {}) {
     phase: force ? "rebuild" : "sync",
   };
 
+  // Full rebuild ONLY on flush / missing file / file ahead of DB (corruption).
+  // New closes → always incremental append.
   const needsFull =
-    force || !fileMeta || fileTrades.length === 0 || dbMeta.closedCount < fileTrades.length;
+    force || !closedFileExists() || fileTrades.length === 0 || dbMeta.closedCount < fileTrades.length;
+
+  let updated = false;
+  let appended = 0;
 
   if (needsFull) {
-    console.log(`[closed-file] Full rebuild → ${CLOSED_TRADES_FILE} (${dbMeta.closedCount} rows)`);
+    console.log(`[closed-file] Full rebuild → ${CLOSED_TRADES_JSONL} (${dbMeta.closedCount} rows)`);
     const all = [];
     let page = 1;
     while (true) {
@@ -671,30 +746,101 @@ async function ensureClosedTradesFile(pool, { force = false } = {}) {
       page += 1;
     }
     fileTrades = all;
-  } else {
-    console.log(`[closed-file] Incremental update since ${fileMeta.lastClosedAt}`);
-    const newRows = await queryClosedTradesSince(pool, fileMeta.lastClosedAt);
-    fileTrades = mergeClosedTradeRows(fileTrades, newRows);
-    closedFileSyncState.downloaded = fileTrades.length;
+    const newMeta = {
+      cacheVersion: CLOSED_FILE_CACHE_VERSION,
+      closedCount: dbMeta.closedCount,
+      lastClosedAt: dbMeta.lastClosedAt,
+      lastSyncAt: new Date().toISOString(),
+      storage: "jsonl",
+      filePath: "data/closed_trades.jsonl",
+      mode: "full",
+    };
+    writeClosedTradesFileFull(fileTrades, newMeta);
+    closedFileSyncState = {
+      syncing: false,
+      downloaded: fileTrades.length,
+      total: dbMeta.closedCount,
+      phase: "ready",
+    };
+    console.log(`[closed-file] Full save ${fileTrades.length} closed trades`);
+    return { trades: fileTrades, meta: newMeta, fromFile: true, updated: true };
   }
 
-  const newMeta = {
-    cacheVersion: CLOSED_FILE_CACHE_VERSION,
-    closedCount: dbMeta.closedCount,
-    lastClosedAt: dbMeta.lastClosedAt,
-    lastSyncAt: new Date().toISOString(),
-    storage: "file",
-    filePath: "data/closed_trades.json",
-  };
-  writeClosedTradesFile(fileTrades, newMeta);
+  // Incremental: fetch only rows newer than file meta, append to JSONL
+  const sinceAt = fileMeta.lastClosedAt;
+  console.log(`[closed-file] Incremental append since ${sinceAt}`);
+  const newRows = await queryClosedTradesSince(pool, sinceAt);
+  if (newRows.length > 0) {
+    const beforeKeys = new Set(fileTrades.map(closedTradeRowKey));
+    const trulyNew = newRows.filter((t) => !beforeKeys.has(closedTradeRowKey(t)));
+    appended = trulyNew.length;
+    if (trulyNew.length > 0) {
+      fileTrades = mergeClosedTradeRows(fileTrades, trulyNew);
+      const newMeta = {
+        cacheVersion: CLOSED_FILE_CACHE_VERSION,
+        closedCount: dbMeta.closedCount,
+        lastClosedAt: dbMeta.lastClosedAt,
+        lastSyncAt: new Date().toISOString(),
+        storage: "jsonl",
+        filePath: "data/closed_trades.jsonl",
+        mode: "append",
+        lastAppended: trulyNew.length,
+      };
+      appendClosedTradesToFile(trulyNew, newMeta);
+      updated = true;
+      console.log(`[closed-file] Appended ${trulyNew.length} new closed trade(s) to JSONL`);
+    } else {
+      // Count/timestamp drifted but no new unique rows — just refresh meta
+      const newMeta = {
+        ...(fileMeta || {}),
+        cacheVersion: CLOSED_FILE_CACHE_VERSION,
+        closedCount: dbMeta.closedCount,
+        lastClosedAt: dbMeta.lastClosedAt,
+        lastSyncAt: new Date().toISOString(),
+        storage: "jsonl",
+        filePath: "data/closed_trades.jsonl",
+        mode: "meta-only",
+      };
+      writeClosedTradesMetaFile(newMeta);
+      console.log(`[closed-file] Meta refreshed (no new unique rows)`);
+      closedFileSyncState = {
+        syncing: false,
+        downloaded: fileTrades.length,
+        total: dbMeta.closedCount,
+        phase: "ready",
+      };
+      return { trades: fileTrades, meta: newMeta, fromFile: true, updated: false };
+    }
+  } else {
+    // DB says newer meta but query returned nothing — update meta only
+    const newMeta = {
+      ...(fileMeta || {}),
+      cacheVersion: CLOSED_FILE_CACHE_VERSION,
+      closedCount: dbMeta.closedCount,
+      lastClosedAt: dbMeta.lastClosedAt,
+      lastSyncAt: new Date().toISOString(),
+      storage: "jsonl",
+      filePath: "data/closed_trades.jsonl",
+      mode: "meta-only",
+    };
+    writeClosedTradesMetaFile(newMeta);
+    closedFileSyncState = {
+      syncing: false,
+      downloaded: fileTrades.length,
+      total: dbMeta.closedCount,
+      phase: "ready",
+    };
+    return { trades: fileTrades, meta: newMeta, fromFile: true, updated: false };
+  }
+
   closedFileSyncState = {
     syncing: false,
     downloaded: fileTrades.length,
     total: dbMeta.closedCount,
     phase: "ready",
   };
-  console.log(`[closed-file] Saved ${fileTrades.length} closed trades to JSON file`);
-  return { trades: fileTrades, meta: newMeta, fromFile: true, updated: true };
+  const meta = readClosedTradesMetaFile();
+  return { trades: fileTrades, meta, fromFile: true, updated, appended };
 }
 
 /** Return file contents immediately; sync DB→file in background when stale. */
@@ -871,28 +1017,30 @@ app.get("/api/trades/closed/file/status", async (req, res) => {
   try {
     const pool = await poolPromise;
     const dbMeta = pool ? await queryDbClosedMeta(pool) : { closedCount: 0, lastClosedAt: null };
+    migrateLegacyClosedJsonToJsonl();
     const fileMeta = readClosedTradesMetaFile();
-    const fileTrades = readClosedTradesFile();
+    const hasFile = closedFileExists();
+    const fileCount = fileMeta?.closedCount ?? 0;
     const percent =
       closedFileSyncState.total > 0
         ? Math.min(100, Math.round((closedFileSyncState.downloaded / closedFileSyncState.total) * 100))
-        : fileTrades.length > 0
+        : hasFile
           ? 100
           : 0;
     res.json({
       ...closedFileSyncState,
       percent,
-      fileCount: fileTrades.length,
-      hasFile: fileTrades.length > 0,
+      fileCount,
+      hasFile,
       fileMeta,
       dbMeta,
-      filePath: "data/closed_trades.json",
+      filePath: fileMeta?.filePath || "data/closed_trades.jsonl",
     });
-    // Keep server JSON file in sync in background (browser never waits on this)
+    // Keep server file in sync in background (append-only when new closes exist)
     if (pool && !closedFileSyncState.syncing) {
       const stale =
         !fileMeta ||
-        fileTrades.length === 0 ||
+        !hasFile ||
         fileMeta.closedCount !== dbMeta.closedCount ||
         !sameTimestamp(fileMeta.lastClosedAt, dbMeta.lastClosedAt);
       if (stale) scheduleClosedFileSync(pool, { force: false });

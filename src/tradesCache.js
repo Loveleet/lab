@@ -452,6 +452,8 @@ export async function fetchTradesSmart({
     const incResult = await fetchClosedIncremental(metaForCompare.lastClosedAt, onProgress);
     if (incResult.authRequired) return { authRequired: true, trades: [] };
     closed = mergeClosedRows(closed, incResult.trades);
+    // Tell server to append the same new closes into its JSONL (background)
+    fetchFileStatus().catch(() => {});
   } else if (!closed.length || forceFullClosed) {
     // First time: paged download (shows after first page) — never the 18MB file
     closedMode = "paged";
