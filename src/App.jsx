@@ -525,9 +525,16 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
   }, []);
 
   const shiftViewDay = useCallback((delta) => {
-    const base = viewDay ? viewDay.clone() : moment().startOf("day");
-    applyViewDay(base.add(delta, "day"));
+    if (!viewDay) return;
+    applyViewDay(viewDay.clone().add(delta, "day"));
   }, [viewDay, applyViewDay]);
+
+  const clearViewDay = useCallback(() => {
+    setViewDay(null);
+    setFromDate(null);
+    setToDate(null);
+    setDateKey((prev) => prev + 1);
+  }, []);
   
 
   const refreshAllData = useCallback(async () => {
@@ -2768,6 +2775,7 @@ useEffect(() => {
                       onViewDayBack={() => shiftViewDay(-1)}
                       onViewDayForward={() => shiftViewDay(1)}
                       onViewDaySet={applyViewDay}
+                      onViewDayOff={clearViewDay}
                       setViewDay={setViewDay}
                       includeMinClose={includeMinClose}
                       setIncludeMinClose={setIncludeMinClose}

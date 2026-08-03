@@ -21,6 +21,7 @@ const TradeFilterPanel = ({
   onViewDayBack,
   onViewDayForward,
   onViewDaySet,
+  onViewDayOff,
   setViewDay,
   includeMinClose,
   setIncludeMinClose,
@@ -532,12 +533,32 @@ const TradeFilterPanel = ({
             Reset
           </button>
           <div className="mt-2 pt-2 border-t border-yellow-300/60 dark:border-yellow-700/60">
-            <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1 block">Day view</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-semibold text-gray-800 dark:text-gray-200">Day view</label>
+              <button
+                type="button"
+                onClick={onViewDayOff}
+                disabled={!viewDay && !fromDate && !toDate}
+                className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${
+                  viewDay || fromDate || toDate
+                    ? "bg-red-500 hover:bg-red-600 text-white"
+                    : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                }`}
+                title="Turn off day filter — show all trades"
+              >
+                Off
+              </button>
+            </div>
             <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={onViewDayBack}
-                className="flex-shrink-0 bg-yellow-500 dark:bg-yellow-700 text-yellow-950 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-600 dark:hover:bg-yellow-600 font-bold text-xs"
+                disabled={!viewDay}
+                className={`flex-shrink-0 px-2 py-1 rounded font-bold text-xs ${
+                  viewDay
+                    ? "bg-yellow-500 dark:bg-yellow-700 text-yellow-950 dark:text-yellow-100 hover:bg-yellow-600 dark:hover:bg-yellow-600"
+                    : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                }`}
                 title="Previous day"
               >
                 ←
@@ -545,7 +566,11 @@ const TradeFilterPanel = ({
               <button
                 type="button"
                 onClick={() => dayPickerRef.current?.showPicker?.() || dayPickerRef.current?.click()}
-                className="flex-1 min-w-0 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 px-2 py-1 rounded border border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-gray-700 font-semibold text-xs truncate"
+                className={`flex-1 min-w-0 px-2 py-1 rounded border font-semibold text-xs truncate ${
+                  viewDay
+                    ? "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-900 dark:text-yellow-100 border-yellow-500 dark:border-yellow-500"
+                    : "bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-gray-700"
+                }`}
                 title="Pick a day"
               >
                 {viewDay ? viewDay.format("ddd, MMM D YYYY") : "Set Date"}
@@ -562,7 +587,12 @@ const TradeFilterPanel = ({
               <button
                 type="button"
                 onClick={onViewDayForward}
-                className="flex-shrink-0 bg-yellow-500 dark:bg-yellow-700 text-yellow-950 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-600 dark:hover:bg-yellow-600 font-bold text-xs"
+                disabled={!viewDay}
+                className={`flex-shrink-0 px-2 py-1 rounded font-bold text-xs ${
+                  viewDay
+                    ? "bg-yellow-500 dark:bg-yellow-700 text-yellow-950 dark:text-yellow-100 hover:bg-yellow-600 dark:hover:bg-yellow-600"
+                    : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+                }`}
                 title="Next day"
               >
                 →
