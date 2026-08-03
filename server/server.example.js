@@ -673,19 +673,34 @@ async function queryClosedTradesPage(pool, page, limit = CLOSED_FILE_PAGE_SIZE) 
   return result.rows;
 }
 
-async function queryClosedTradesSince(pool, sinceAt) {
+async function queryClosedTradesSince(pool, sinceAt, { inclusive = false } = {}) {
   const sinceDate = new Date(sinceAt);
   if (Number.isNaN(sinceDate.getTime())) return [];
+  const cmp = inclusive ? ">=" : ">";
   const result = await pool.query(
     `
     SELECT * FROM alltraderecords
     WHERE type IN (${CLOSED_TYPE_LIST})
-      AND COALESCE(created_at, candel_time::timestamptz) > $1
+      AND COALESCE(created_at, candel_time::timestamptz) ${cmp} $1
     ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
     `,
     [sinceDate.toISOString()]
   );
   return result.rows;
+}
+
+async function queryClosedTradesTail(pool, limit) {
+  const n = Math.min(Math.max(1, limit), 5000);
+  const result = await pool.query(
+    `
+    SELECT * FROM alltraderecords
+    WHERE type IN (${CLOSED_TYPE_LIST})
+    ORDER BY COALESCE(created_at, candel_time::timestamptz) DESC
+    LIMIT $1
+    `,
+    [n]
+  );
+  return result.rows.reverse();
 }
 
 function sameTimestamp(a, b) {
@@ -706,6 +721,7 @@ async function ensureClosedTradesFile(pool, { force = false } = {}) {
     !force &&
     fileMeta &&
     fileTrades.length > 0 &&
+    fileTrades.length === dbMeta.closedCount &&
     fileMeta.closedCount === dbMeta.closedCount &&
     sameTimestamp(fileMeta.lastClosedAt, dbMeta.lastClosedAt);
 
@@ -766,10 +782,10 @@ async function ensureClosedTradesFile(pool, { force = false } = {}) {
     return { trades: fileTrades, meta: newMeta, fromFile: true, updated: true };
   }
 
-  // Incremental: fetch only rows newer than file meta, append to JSONL
+  // Incremental: fetch rows at/after file meta (inclusive catches same-timestamp closes), append to JSONL
   const sinceAt = fileMeta.lastClosedAt;
-  console.log(`[closed-file] Incremental append since ${sinceAt}`);
-  const newRows = await queryClosedTradesSince(pool, sinceAt);
+  console.log(`[closed-file] Incremental append since ${sinceAt} (inclusive)`);
+  let newRows = await queryClosedTradesSince(pool, sinceAt, { inclusive: true });
   if (newRows.length > 0) {
     const beforeKeys = new Set(fileTrades.map(closedTradeRowKey));
     const trulyNew = newRows.filter((t) => !beforeKeys.has(closedTradeRowKey(t)));
@@ -790,7 +806,34 @@ async function ensureClosedTradesFile(pool, { force = false } = {}) {
       updated = true;
       console.log(`[closed-file] Appended ${trulyNew.length} new closed trade(s) to JSONL`);
     } else {
-      // Count/timestamp drifted but no new unique rows — just refresh meta
+      console.log(`[closed-file] Incremental rows were all duplicates — will gap-fill if count still short`);
+    }
+  }
+
+  if (fileTrades.length < dbMeta.closedCount) {
+    // Count drift: fetch recent tail and merge any rows missing from file
+    const gap = dbMeta.closedCount - fileTrades.length;
+    console.log(`[closed-file] Gap fill: file ${fileTrades.length} vs DB ${dbMeta.closedCount} (gap ${gap})`);
+    const tailRows = await queryClosedTradesTail(pool, gap + 100);
+    const beforeKeys = new Set(fileTrades.map(closedTradeRowKey));
+    const missing = tailRows.filter((t) => !beforeKeys.has(closedTradeRowKey(t)));
+    if (missing.length > 0) {
+      fileTrades = mergeClosedTradeRows(fileTrades, missing);
+      appended = missing.length;
+      const newMeta = {
+        cacheVersion: CLOSED_FILE_CACHE_VERSION,
+        closedCount: dbMeta.closedCount,
+        lastClosedAt: dbMeta.lastClosedAt,
+        lastSyncAt: new Date().toISOString(),
+        storage: "jsonl",
+        filePath: "data/closed_trades.jsonl",
+        mode: "gap-fill",
+        lastAppended: missing.length,
+      };
+      appendClosedTradesToFile(missing, newMeta);
+      updated = true;
+      console.log(`[closed-file] Gap-filled ${missing.length} closed trade(s)`);
+    } else {
       const newMeta = {
         ...(fileMeta || {}),
         cacheVersion: CLOSED_FILE_CACHE_VERSION,
@@ -802,17 +845,12 @@ async function ensureClosedTradesFile(pool, { force = false } = {}) {
         mode: "meta-only",
       };
       writeClosedTradesMetaFile(newMeta);
-      console.log(`[closed-file] Meta refreshed (no new unique rows)`);
-      closedFileSyncState = {
-        syncing: false,
-        downloaded: fileTrades.length,
-        total: dbMeta.closedCount,
-        phase: "ready",
-      };
-      return { trades: fileTrades, meta: newMeta, fromFile: true, updated: false };
     }
-  } else {
-    // DB says newer meta but query returned nothing — update meta only
+  } else if (
+    fileMeta.closedCount !== dbMeta.closedCount ||
+    !sameTimestamp(fileMeta.lastClosedAt, dbMeta.lastClosedAt)
+  ) {
+    // Count matches but meta timestamps/count field drifted — refresh meta only
     const newMeta = {
       ...(fileMeta || {}),
       cacheVersion: CLOSED_FILE_CACHE_VERSION,
@@ -941,6 +979,8 @@ app.get("/api/trades/closed", async (req, res) => {
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const limit = parseClosedPageLimit(req.query.limit, 2000);
     const sinceAt = (req.query.since_at || "").trim();
+    const inclusive = req.query.inclusive === "1" || req.query.inclusive === "true";
+    const tail = parseInt(req.query.tail, 10);
     const offset = (page - 1) * limit;
 
     const countResult = await pool.query(`
@@ -949,16 +989,30 @@ app.get("/api/trades/closed", async (req, res) => {
     const closedCount = countResult.rows[0]?.c ?? 0;
 
     let rows = [];
+    if (Number.isFinite(tail) && tail > 0) {
+      rows = await queryClosedTradesTail(pool, tail);
+      return res.json({
+        trades: rows,
+        _meta: {
+          count: rows.length,
+          segment: "closed",
+          mode: "tail",
+          tail,
+          closedCount,
+        },
+      });
+    }
     if (sinceAt) {
       const sinceDate = new Date(sinceAt);
       if (Number.isNaN(sinceDate.getTime())) {
         return res.status(400).json({ error: "Invalid since_at" });
       }
+      const cmp = inclusive ? ">=" : ">";
       const incremental = await pool.query(
         `
         SELECT * FROM alltraderecords
         WHERE type IN (${CLOSED_TYPE_LIST})
-          AND COALESCE(created_at, candel_time::timestamptz) > $1
+          AND COALESCE(created_at, candel_time::timestamptz) ${cmp} $1
         ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
         LIMIT $2
         `,
@@ -972,6 +1026,7 @@ app.get("/api/trades/closed", async (req, res) => {
           segment: "closed",
           mode: "incremental",
           sinceAt,
+          inclusive,
           closedCount,
         },
       });
@@ -1020,7 +1075,9 @@ app.get("/api/trades/closed/file/status", async (req, res) => {
     migrateLegacyClosedJsonToJsonl();
     const fileMeta = readClosedTradesMetaFile();
     const hasFile = closedFileExists();
-    const fileCount = fileMeta?.closedCount ?? 0;
+    const fileTrades = readClosedTradesFile();
+    const fileLineCount = fileTrades.length;
+    const fileCount = fileMeta?.closedCount ?? fileLineCount;
     const percent =
       closedFileSyncState.total > 0
         ? Math.min(100, Math.round((closedFileSyncState.downloaded / closedFileSyncState.total) * 100))
@@ -1031,6 +1088,7 @@ app.get("/api/trades/closed/file/status", async (req, res) => {
       ...closedFileSyncState,
       percent,
       fileCount,
+      fileLineCount,
       hasFile,
       fileMeta,
       dbMeta,
@@ -1041,6 +1099,7 @@ app.get("/api/trades/closed/file/status", async (req, res) => {
       const stale =
         !fileMeta ||
         !hasFile ||
+        fileLineCount !== dbMeta.closedCount ||
         fileMeta.closedCount !== dbMeta.closedCount ||
         !sameTimestamp(fileMeta.lastClosedAt, dbMeta.lastClosedAt);
       if (stale) scheduleClosedFileSync(pool, { force: false });

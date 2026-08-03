@@ -414,6 +414,19 @@ const [toDate, setToDate] = useState(() => {
   return saved ? moment(saved) : null;
 });
 
+const [viewDay, setViewDay] = useState(() => {
+  const saved = localStorage.getItem("viewDay");
+  return saved ? moment(saved).startOf("day") : null;
+});
+
+useEffect(() => {
+  if (viewDay) {
+    localStorage.setItem("viewDay", viewDay.format("YYYY-MM-DD"));
+  } else {
+    localStorage.removeItem("viewDay");
+  }
+}, [viewDay]);
+
 useEffect(() => {
   if (fromDate) {
     localStorage.setItem("fromDate", fromDate.toISOString());
@@ -502,6 +515,19 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
 });
   const [selectedMachines, setSelectedMachines] = useState({});
   const [dateKey, setDateKey] = useState(0);
+
+  const applyViewDay = useCallback((day) => {
+    const d = moment(day).startOf("day");
+    setViewDay(d);
+    setFromDate(d.clone());
+    setToDate(d.clone().endOf("day"));
+    setDateKey((prev) => prev + 1);
+  }, []);
+
+  const shiftViewDay = useCallback((delta) => {
+    const base = viewDay ? viewDay.clone() : moment().startOf("day");
+    applyViewDay(base.add(delta, "day"));
+  }, [viewDay, applyViewDay]);
   
 
   const refreshAllData = useCallback(async () => {
@@ -1207,6 +1233,7 @@ useEffect(() => {
   const hedgeClosedTotal = filteredTradeData
   .filter(trade => trade.type === "hedge_close"  )
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
+  const totalClosedTotal = closePlus + hedgeClosedPlus + closeMinus + hedgeClosedMinus;
   
   const minCloseProfitVlaue = filteredTradeData
     .filter(trade => trade.min_close === "Min_close"  &&  trade.type === "close" && trade.pl_after_comm > 0)
@@ -1249,10 +1276,10 @@ Total_Closed_Stats: (
               </span>
               &nbsp;&nbsp;<span style={{ fontSize: `${25 + (fontSizeLevel - 8) * 5}px` }}>=</span>&nbsp;&nbsp;
               <span
-                className={`${closedProfit >= 0 ? "text-green-300" : "text-red-400"} text-[30px]`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}
+                className={`${totalClosedTotal >= 0 ? "text-green-300" : "text-red-400"} text-[30px]`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}
                 title="Closed Total (Hedge + Direct)"
               >
-                {((closePlus + hedgeClosedPlus)+(closeMinus + hedgeClosedMinus)).toFixed(2)}
+                {totalClosedTotal.toFixed(2)}
               </span>
               </>),
 Direct_Closed_Stats: (
@@ -2737,6 +2764,11 @@ useEffect(() => {
                       toDate={toDate}
                       setFromDate={setFromDate}
                       setToDate={setToDate}
+                      viewDay={viewDay}
+                      onViewDayBack={() => shiftViewDay(-1)}
+                      onViewDayForward={() => shiftViewDay(1)}
+                      onViewDaySet={applyViewDay}
+                      setViewDay={setViewDay}
                       includeMinClose={includeMinClose}
                       setIncludeMinClose={setIncludeMinClose}
                       signalRadioMode={signalRadioMode}

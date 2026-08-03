@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import moment from "moment";
 
 // Optional short labels; unknown signalfrom values from trades display as-is
@@ -17,6 +17,11 @@ const TradeFilterPanel = ({
   toDate,
   setFromDate,
   setToDate,
+  viewDay,
+  onViewDayBack,
+  onViewDayForward,
+  onViewDaySet,
+  setViewDay,
   includeMinClose,
   setIncludeMinClose,
   signalRadioMode,
@@ -40,6 +45,7 @@ const TradeFilterPanel = ({
   assignedCount,
   dateKey
 }) => {
+  const dayPickerRef = useRef(null);
   const toMachineKey = (id) => (id === null || id === undefined ? "" : String(id));
   // --- Helper functions for toggling checkboxes/radios in the copied block ---
   // Only define if not present (for this component scope)
@@ -518,12 +524,51 @@ const TradeFilterPanel = ({
             onClick={() => {
               setFromDate(null);
               setToDate(null);
+              setViewDay?.(null);
               setDateKey(prev => prev + 1);
             }}
             className="bg-yellow-400 dark:bg-yellow-700 text-yellow-900 dark:text-yellow-100 px-2 py-1 rounded mt-1 hover:bg-yellow-500 dark:hover:bg-yellow-800 focus:ring-1 focus:ring-yellow-400 transition-all font-semibold text-xs"
           >
             Reset
           </button>
+          <div className="mt-2 pt-2 border-t border-yellow-300/60 dark:border-yellow-700/60">
+            <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1 block">Day view</label>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onViewDayBack}
+                className="flex-shrink-0 bg-yellow-500 dark:bg-yellow-700 text-yellow-950 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-600 dark:hover:bg-yellow-600 font-bold text-xs"
+                title="Previous day"
+              >
+                ←
+              </button>
+              <button
+                type="button"
+                onClick={() => dayPickerRef.current?.showPicker?.() || dayPickerRef.current?.click()}
+                className="flex-1 min-w-0 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 px-2 py-1 rounded border border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-gray-700 font-semibold text-xs truncate"
+                title="Pick a day"
+              >
+                {viewDay ? viewDay.format("ddd, MMM D YYYY") : "Set Date"}
+              </button>
+              <input
+                ref={dayPickerRef}
+                type="date"
+                className="sr-only"
+                value={viewDay ? viewDay.format("YYYY-MM-DD") : ""}
+                onChange={(e) => {
+                  if (e.target.value) onViewDaySet?.(e.target.value);
+                }}
+              />
+              <button
+                type="button"
+                onClick={onViewDayForward}
+                className="flex-shrink-0 bg-yellow-500 dark:bg-yellow-700 text-yellow-950 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-600 dark:hover:bg-yellow-600 font-bold text-xs"
+                title="Next day"
+              >
+                →
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

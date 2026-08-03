@@ -69,12 +69,27 @@ function normalizeMetaTs(ts) {
   return Number.isNaN(n) ? null : new Date(n).toISOString();
 }
 
-export function metaMatches(a, b) {
+export function metaMatches(a, b, localClosedCount) {
   if (!a || !b) return false;
-  return (
-    Number(a.closedCount) === Number(b.closedCount) &&
-    normalizeMetaTs(a.lastClosedAt) === normalizeMetaTs(b.lastClosedAt)
-  );
+  const countOk = Number(a.closedCount) === Number(b.closedCount);
+  const tsOk = normalizeMetaTs(a.lastClosedAt) === normalizeMetaTs(b.lastClosedAt);
+  const localOk =
+    localClosedCount == null || Number(localClosedCount) === Number(b.closedCount);
+  return countOk && tsOk && localOk;
+}
+
+/** True when DB has more/different closed data than local cache. */
+export function closedSyncNeeded(cachedMeta, dbMeta, localClosedCount) {
+  if (!dbMeta) return false;
+  const dbCount = Number(dbMeta.closedCount);
+  const localCount = Number(localClosedCount ?? cachedMeta?.closedCount ?? 0);
+  if (localCount < dbCount) return true;
+  if (!cachedMeta) return dbCount > 0 && localCount === 0;
+  if (Number(cachedMeta.closedCount) !== dbCount) return true;
+  if (normalizeMetaTs(cachedMeta.lastClosedAt) !== normalizeMetaTs(dbMeta.lastClosedAt)) {
+    return true;
+  }
+  return false;
 }
 
 function openIdb() {
@@ -195,7 +210,7 @@ async function fetchClosedIncremental(sinceAt, onProgress) {
     onProgress({ phase: "incremental", percent: 50, message: "Fetching newly closed trades…" });
   }
   const q = encodeURIComponent(sinceAt);
-  const res = await apiFetch(`/api/trades/closed?since_at=${q}&limit=5000`);
+  const res = await apiFetch(`/api/trades/closed?since_at=${q}&limit=5000&inclusive=1`);
   if (res.status === 401) return { authRequired: true, trades: [] };
   if (!res.ok) throw new Error(`incremental closed HTTP ${res.status}`);
   const json = await res.json();
@@ -210,6 +225,33 @@ async function fetchClosedIncremental(sinceAt, onProgress) {
     });
   }
   return { authRequired: false, trades };
+}
+
+async function fetchClosedTail(limit, onProgress) {
+  if (onProgress) {
+    onProgress({ phase: "gap-fill", percent: 70, message: "Filling missing closed trades…" });
+  }
+  const res = await apiFetch(`/api/trades/closed?tail=${Math.min(limit, 5000)}`);
+  if (res.status === 401) return { authRequired: true, trades: [] };
+  if (!res.ok) throw new Error(`tail closed HTTP ${res.status}`);
+  const json = await res.json();
+  const trades = Array.isArray(json.trades) ? json.trades : [];
+  if (onProgress) {
+    onProgress({
+      phase: "gap-fill",
+      downloaded: trades.length,
+      total: trades.length,
+      percent: 100,
+      message: trades.length ? `Gap-filled ${trades.length} closed trade(s)` : "No gap to fill",
+    });
+  }
+  return { authRequired: false, trades };
+}
+
+async function triggerServerClosedSync() {
+  try {
+    await apiFetch("/api/trades/closed/file/status");
+  } catch (_) {}
 }
 
 async function fetchFileStatus() {
@@ -423,13 +465,12 @@ export async function fetchTradesSmart({
   let closedSkipped = false;
   let closedMode = "cache";
 
-  if (
+  const needsClosedSync =
     !forceFullClosed &&
     metaSnapshot &&
-    metaForCompare &&
-    closed.length > 0 &&
-    metaMatches(metaForCompare, metaSnapshot)
-  ) {
+    closedSyncNeeded(metaForCompare, metaSnapshot, closed.length);
+
+  if (!forceFullClosed && metaSnapshot && closed.length > 0 && !needsClosedSync) {
     closedSkipped = true;
     closedMode = "cache";
     if (onProgress) {
@@ -439,21 +480,27 @@ export async function fetchTradesSmart({
         message: `Closed in sync (${closed.length}) — skipped download`,
       });
     }
-  } else if (
-    !forceFullClosed &&
-    metaSnapshot &&
-    metaForCompare &&
-    closed.length > 0 &&
-    metaForCompare.lastClosedAt &&
-    (metaSnapshot.closedCount !== metaForCompare.closedCount ||
-      normalizeMetaTs(metaSnapshot.lastClosedAt) !== normalizeMetaTs(metaForCompare.lastClosedAt))
-  ) {
+    triggerServerClosedSync();
+  } else if (needsClosedSync && closed.length > 0 && metaForCompare?.lastClosedAt) {
     closedMode = "incremental";
     const incResult = await fetchClosedIncremental(metaForCompare.lastClosedAt, onProgress);
     if (incResult.authRequired) return { authRequired: true, trades: [] };
     closed = mergeClosedRows(closed, incResult.trades);
-    // Tell server to append the same new closes into its JSONL (background)
-    fetchFileStatus().catch(() => {});
+    if (metaSnapshot && closed.length < metaSnapshot.closedCount) {
+      const gap = metaSnapshot.closedCount - closed.length;
+      const tailResult = await fetchClosedTail(gap + 100, onProgress);
+      if (tailResult.authRequired) return { authRequired: true, trades: [] };
+      closed = mergeClosedRows(closed, tailResult.trades);
+      closedMode = closed.length >= metaSnapshot.closedCount ? "incremental+gap" : "gap-fill";
+    }
+    triggerServerClosedSync();
+  } else if (needsClosedSync && closed.length > 0 && !metaForCompare?.lastClosedAt) {
+    closedMode = "gap-fill";
+    const gap = (metaSnapshot?.closedCount ?? 0) - closed.length;
+    const tailResult = await fetchClosedTail(Math.max(gap + 100, 200), onProgress);
+    if (tailResult.authRequired) return { authRequired: true, trades: [] };
+    closed = mergeClosedRows(closed, tailResult.trades);
+    triggerServerClosedSync();
   } else if (!closed.length || forceFullClosed) {
     // First time: paged download (shows after first page) — never the 18MB file
     closedMode = "paged";
