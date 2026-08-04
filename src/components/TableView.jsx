@@ -20,18 +20,6 @@ const intervalMap = {
   "1d": "D"
 };
 
-// Helper functions for consistent data parsing
-const parseHedge = (hedgeValue) => {
-  if (hedgeValue === true || hedgeValue === "true" || hedgeValue === 1 || hedgeValue === "1") return true;
-  if (hedgeValue === false || hedgeValue === "false" || hedgeValue === 0 || hedgeValue === "0" || 
-      hedgeValue === null || hedgeValue === undefined) return false;
-  if (typeof hedgeValue === 'string') {
-    const numValue = parseFloat(hedgeValue);
-    return !isNaN(numValue) && numValue > 0;
-  }
-  return false;
-};
-
 const parseBoolean = (value) => {
   if (value === true || value === "true" || value === 1 || value === "1") return true;
   if (typeof value === 'string') {
@@ -45,6 +33,7 @@ const parseBoolean = (value) => {
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import moment from "moment";
+import { isHedgeClosedTrade, parseHedge } from "../tradeFilterUtils";
 
 import * as XLSX from "xlsx";
 import { Home, BarChart, FileText, Menu, ChevronDown, ChevronRight } from "lucide-react";
@@ -668,14 +657,10 @@ useEffect(() => {
       filteredTrades = filteredTrades.filter(trade => trade.type === "close" || trade.type === "hedge_close");
       break;
     case "Direct_Closed_Stats":
-      filteredTrades = filteredTrades.filter(trade => {
-        const isHedge = parseHedge(trade.hedge);
-        return trade.type === "close" && !isHedge;
-      });
+      filteredTrades = filteredTrades.filter(trade => trade.type === "close" && !isHedgeClosedTrade(trade));
       break;
     case "Hedge_Closed_Stats":
-      // Only explicit hedge_close trades; don't require hedge flag which may be unset
-      filteredTrades = filteredTrades.filter(trade => trade.type === "hedge_close");
+      filteredTrades = filteredTrades.filter(trade => isHedgeClosedTrade(trade));
       break;
     case "Total_Running_Stats":
       filteredTrades = filteredTrades.filter(trade => trade.type === "running" || trade.type === "hedge_hold");

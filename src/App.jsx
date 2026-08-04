@@ -28,6 +28,7 @@ import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
 import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, loadClosedFromLocalCache } from "./tradesCache";
+import { isHedgeClosedTrade, matchesSingleDayView, getTradeCloseMoment } from "./tradeFilterUtils";
 
 function tradeSignalFrom(trade) {
   return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
@@ -829,16 +830,30 @@ const filteredTradeData = useMemo(() => {
       return false; // Neither selected: show nothing
     }
 
-    // ✅ Handle missing or malformed Candle time
-    if (!trade.candel_time) return false;
+    // ✅ Date filter: single-day view uses close time for closed; running only on today
+    let isDateInRange = true;
+    if (viewDay) {
+      isDateInRange = matchesSingleDayView(trade, viewDay);
+    } else if (fromDate || toDate) {
+      if (!trade.candel_time) return false;
+      const tradeTime = moment(trade.candel_time);
+      isDateInRange =
+        (!fromDate || tradeTime.isSameOrAfter(fromDate)) &&
+        (!toDate || tradeTime.isSameOrBefore(toDate));
+    }
 
-    const tradeTime = moment(trade.candel_time); // ⏳ Parse to moment
+    if (!isDateInRange) return false;
 
-    // ✅ Check if within selected date & time range
-    const isDateInRange = (!fromDate || tradeTime.isSameOrAfter(fromDate)) &&
-                          (!toDate || tradeTime.isSameOrBefore(toDate));
+    // Running/assign without candle time still OK when day view is today-only running
+    if (!viewDay && !trade.candel_time) return false;
+    if (viewDay && !trade.candel_time) {
+      const type = String(trade.type || "").toLowerCase();
+      const needsCandle = !["running", "hedge_hold", "close", "hedge_close"].includes(type);
+      if (needsCandle) return false;
+      if ((type === "close" || type === "hedge_close") && !getTradeCloseMoment(trade)) return false;
+    }
 
-    if (!(isSignalSelected && isMachineSelected && isIntervalSelected && isActionSelected && isDateInRange)) {
+    if (!(isSignalSelected && isMachineSelected && isIntervalSelected && isActionSelected)) {
       return false;
     }
 
@@ -866,7 +881,7 @@ const filteredTradeData = useMemo(() => {
     };
   });
   // console.log('[App.jsx] filteredTradeData:', filteredTradeData);
-}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, includeMinClose, fontSizeLevel, liveFilter, cjFilterMode]);
+}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, includeMinClose, fontSizeLevel, liveFilter, cjFilterMode]);
 
 // Debug: log machine coverage and trade counts (raw vs filtered)
 useEffect(() => {
@@ -946,11 +961,11 @@ const getFilteredForTitle = useMemo(() => {
       pushTo("Total_Closed_Stats");
       pushTo("Closed_Count_Stats");
       
-      if (!isHedge) pushTo("Direct_Closed_Stats");
+      if (!isHedgeClosedTrade(trade)) pushTo("Direct_Closed_Stats");
     }
     
-    // Hedge Closed Stats - use hedge_close type
-    if (trade.type === "hedge_close") {
+    // Hedge Closed Stats — hedge_close plus loss-making hedge direct closes
+    if (isHedgeClosedTrade(trade)) {
       pushTo("Hedge_Closed_Stats");
     }
     
@@ -1110,10 +1125,10 @@ useEffect(() => {
   investmentAvailable = investmentAvailable < 0 ? 0 : investmentAvailable; // ✅ Prevent negative values
 
   const closePlus = filteredTradeData
-    .filter(trade => trade.pl_after_comm > 0 && trade.type === "close" ) // ✅ Correct field reference
+    .filter(trade => trade.pl_after_comm > 0 && trade.type === "close" && !isHedgeClosedTrade(trade))
     .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
   const closeMinus = filteredTradeData
-    .filter(trade => trade.pl_after_comm < 0 && trade.type === "close"  ) // ✅ Correct field reference
+    .filter(trade => trade.pl_after_comm < 0 && trade.type === "close" && !isHedgeClosedTrade(trade))
     .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
   const runningPlusFiltered = filteredTradeData
     .filter(trade => {
@@ -1232,13 +1247,13 @@ useEffect(() => {
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
 
   const hedgeClosedPlus = filteredTradeData
-  .filter(trade => trade.type === "hedge_close" && trade.pl_after_comm > 0)
+  .filter(trade => isHedgeClosedTrade(trade) && trade.pl_after_comm > 0)
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
   const hedgeClosedMinus = filteredTradeData
-  .filter(trade => trade.type === "hedge_close" && trade.pl_after_comm < 0)
+  .filter(trade => isHedgeClosedTrade(trade) && trade.pl_after_comm < 0)
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
   const hedgeClosedTotal = filteredTradeData
-  .filter(trade => trade.type === "hedge_close"  )
+  .filter(trade => isHedgeClosedTrade(trade))
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
   const totalClosedTotal = closePlus + hedgeClosedPlus + closeMinus + hedgeClosedMinus;
   
@@ -1297,7 +1312,7 @@ Direct_Closed_Stats: (
                 &nbsp;
              
               <span title="Closed Count" className={`relative px-[3px] text-yellow-300 font-semibold  font-semibold`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}>
-                {filteredTradeData.filter(trade => trade.type === "close" ).length}
+                {filteredTradeData.filter(trade => trade.type === "close" && !isHedgeClosedTrade(trade)).length}
               </span>
              
               <div style={{ height: '14px' }} />
@@ -1328,10 +1343,7 @@ Hedge_Closed_Stats: (
                 className={`relative px-[3px] text-yellow-300 font-semibold  font-semibold`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}
                 title="Closed Hedge Count"
               >
-                {filteredTradeData.filter(trade => {
-                // Count all explicit hedge_close trades (hedge flag may be unset)
-                return trade.type === "hedge_close";
-              }).length}
+                {filteredTradeData.filter(trade => isHedgeClosedTrade(trade)).length}
               </span>
              
               <div style={{ height: '14px' }} />
