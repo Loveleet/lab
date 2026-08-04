@@ -22,6 +22,8 @@ const TradeFilterPanel = ({
   onViewDayForward,
   onViewDaySet,
   onViewDayOff,
+  onManualDateRangeChange,
+  dayViewActive,
   setViewDay,
   includeMinClose,
   setIncludeMinClose,
@@ -501,6 +503,7 @@ const TradeFilterPanel = ({
               value={fromDate ? moment(fromDate).format('YYYY-MM-DDTHH:mm') : ''}
               onChange={e => {
                 const value = e.target.value;
+                onManualDateRangeChange?.();
                 setFromDate(value ? moment(value) : null);
               }}
               className="border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
@@ -514,6 +517,7 @@ const TradeFilterPanel = ({
               value={toDate ? moment(toDate).format('YYYY-MM-DDTHH:mm') : ''}
               onChange={e => {
                 const value = e.target.value;
+                onManualDateRangeChange?.();
                 setToDate(value ? moment(value) : null);
               }}
               className="border border-gray-300 dark:border-gray-700 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 dark:bg-gray-800 dark:text-white"
@@ -523,9 +527,7 @@ const TradeFilterPanel = ({
           <button
             type="button"
             onClick={() => {
-              setFromDate(null);
-              setToDate(null);
-              setViewDay?.(null);
+              onViewDayOff?.();
               setDateKey(prev => prev + 1);
             }}
             className="bg-yellow-400 dark:bg-yellow-700 text-yellow-900 dark:text-yellow-100 px-2 py-1 rounded mt-1 hover:bg-yellow-500 dark:hover:bg-yellow-800 focus:ring-1 focus:ring-yellow-400 transition-all font-semibold text-xs"
@@ -538,9 +540,9 @@ const TradeFilterPanel = ({
               <button
                 type="button"
                 onClick={onViewDayOff}
-                disabled={!viewDay && !fromDate && !toDate}
+                disabled={!dayViewActive && !viewDay && !fromDate && !toDate}
                 className={`px-2 py-0.5 rounded text-xs font-bold transition-all ${
-                  viewDay || fromDate || toDate
+                  dayViewActive || viewDay || fromDate || toDate
                     ? "bg-red-500 hover:bg-red-600 text-white"
                     : "bg-gray-200 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
                 }`}

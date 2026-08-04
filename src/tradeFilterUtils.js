@@ -54,11 +54,11 @@ export function isHedgeClosedTrade(trade) {
 
 export function getTradeCloseMoment(trade) {
   const raw =
-    trade?.created_at ??
     trade?.operator_close_time ??
     trade?.Operator_close_time ??
     trade?.close_time ??
     trade?.Close_time ??
+    trade?.created_at ??
     trade?.updated_at;
   if (!raw) return null;
   const m = moment(raw);
@@ -66,7 +66,12 @@ export function getTradeCloseMoment(trade) {
 }
 
 /** Active single-day filter from Set Date or From/To on the same calendar day. */
-export function resolveActiveViewDay(viewDay, fromDate, toDate) {
+export function resolveActiveViewDay(viewDay, fromDate, toDate, dayViewActive = false) {
+  if (dayViewActive) {
+    if (viewDay && moment(viewDay).isValid()) return moment(viewDay).startOf("day");
+    if (fromDate && moment(fromDate).isValid()) return moment(fromDate).startOf("day");
+    return null;
+  }
   if (viewDay && moment(viewDay).isValid()) {
     return moment(viewDay).startOf("day");
   }
@@ -78,30 +83,39 @@ export function resolveActiveViewDay(viewDay, fromDate, toDate) {
   return null;
 }
 
+export function isViewDayToday(viewDay) {
+  if (!viewDay || !moment(viewDay).isValid()) return false;
+  return moment(viewDay).startOf("day").isSame(moment(), "day");
+}
+
 /**
  * Single-day view:
- * - Past days: only trades closed on that day.
- * - Today: all running-like trades + closed today.
+ * - Past days: ONLY trades closed on that day (by close timestamp).
+ * - Today: all running-like + closed today.
  */
 export function matchesSingleDayView(trade, viewDay) {
-  if (!viewDay) return true;
+  if (!viewDay || !moment(viewDay).isValid()) return true;
 
   const dayStart = moment(viewDay).startOf("day");
   const dayEnd = moment(viewDay).endOf("day");
   const isToday = dayStart.isSame(moment(), "day");
+
+  // Past days: nothing open/running — closed-on-that-day only
+  if (!isToday) {
+    if (!isClosedTradeType(trade)) return false;
+    const closeTime = getTradeCloseMoment(trade);
+    if (!closeTime) return false;
+    return closeTime.isBetween(dayStart, dayEnd, null, "[]");
+  }
+
+  // Today: show all active/running trades
+  if (isRunningLikeTrade(trade)) return true;
 
   if (isClosedTradeType(trade)) {
     const closeTime = getTradeCloseMoment(trade);
     if (!closeTime) return false;
     return closeTime.isBetween(dayStart, dayEnd, null, "[]");
   }
-
-  if (isRunningLikeTrade(trade)) {
-    return isToday;
-  }
-
-  // Any other non-closed type on a past day is hidden
-  if (!isToday) return false;
 
   const startRaw = trade?.candel_time ?? trade?.candle_time ?? trade?.Candle_time;
   if (!startRaw) return false;

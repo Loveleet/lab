@@ -428,6 +428,10 @@ const [viewDay, setViewDay] = useState(() => {
   return saved ? moment(saved).startOf("day") : null;
 });
 
+const [dayViewActive, setDayViewActive] = useState(() => {
+  return localStorage.getItem("dayViewActive") === "true" && !!localStorage.getItem("viewDay");
+});
+
 useEffect(() => {
   if (viewDay) {
     localStorage.setItem("viewDay", viewDay.format("YYYY-MM-DD"));
@@ -435,6 +439,14 @@ useEffect(() => {
     localStorage.removeItem("viewDay");
   }
 }, [viewDay]);
+
+useEffect(() => {
+  if (dayViewActive) {
+    localStorage.setItem("dayViewActive", "true");
+  } else {
+    localStorage.removeItem("dayViewActive");
+  }
+}, [dayViewActive]);
 
 useEffect(() => {
   if (fromDate) {
@@ -527,6 +539,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
 
   const applyViewDay = useCallback((day) => {
     const d = moment(day).startOf("day");
+    setDayViewActive(true);
     setViewDay(d);
     setFromDate(d.clone());
     setToDate(d.clone().endOf("day"));
@@ -539,10 +552,16 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
   }, [viewDay, applyViewDay]);
 
   const clearViewDay = useCallback(() => {
+    setDayViewActive(false);
     setViewDay(null);
     setFromDate(null);
     setToDate(null);
     setDateKey((prev) => prev + 1);
+  }, []);
+
+  const onManualDateRangeChange = useCallback(() => {
+    setDayViewActive(false);
+    setViewDay(null);
   }, []);
   
 
@@ -819,9 +838,12 @@ const filteredTradeData = useMemo(() => {
     return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : true; // default allow unknown keys
   };
  
-  const activeViewDay = resolveActiveViewDay(viewDay, fromDate, toDate);
+  const activeViewDay = dayViewActive
+    ? resolveActiveViewDay(viewDay, fromDate, toDate, true)
+    : resolveActiveViewDay(viewDay, fromDate, toDate, false);
 
   const baseFiltered = tradeData.filter(trade => {
+    if (dayViewActive && !activeViewDay) return false;
 
     if (!includeMinClose && trade.min_close === "Min_close") return false;
     const isSignalSelected = isSelected(selectedSignals, normalizeSignalFrom(tradeSignalFrom(trade)));
@@ -843,7 +865,7 @@ const filteredTradeData = useMemo(() => {
     // Single-day view: closed on that day; running only when that day is today
     if (activeViewDay) {
       if (!matchesSingleDayView(trade, activeViewDay)) return false;
-    } else if (fromDate || toDate) {
+    } else if (!dayViewActive && (fromDate || toDate)) {
       if (!trade.candel_time) return false;
       const tradeTime = moment(trade.candel_time);
       const isDateInRange =
@@ -888,7 +910,7 @@ const filteredTradeData = useMemo(() => {
     };
   });
   // console.log('[App.jsx] filteredTradeData:', filteredTradeData);
-}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, includeMinClose, fontSizeLevel, liveFilter, cjFilterMode]);
+}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter, cjFilterMode]);
 
 // Debug: log machine coverage and trade counts (raw vs filtered)
 useEffect(() => {
@@ -2795,6 +2817,8 @@ useEffect(() => {
                       onViewDayForward={() => shiftViewDay(1)}
                       onViewDaySet={applyViewDay}
                       onViewDayOff={clearViewDay}
+                      onManualDateRangeChange={onManualDateRangeChange}
+                      dayViewActive={dayViewActive}
                       setViewDay={setViewDay}
                       includeMinClose={includeMinClose}
                       setIncludeMinClose={setIncludeMinClose}
