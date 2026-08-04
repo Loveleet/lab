@@ -28,7 +28,15 @@ import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
 import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, loadClosedFromLocalCache } from "./tradesCache";
-import { isHedgeClosedTrade, matchesSingleDayView, getTradeCloseMoment } from "./tradeFilterUtils";
+import {
+  isHedgeClosedTrade,
+  matchesSingleDayView,
+  getTradeCloseMoment,
+  resolveActiveViewDay,
+  getTradeType,
+  isRunningLikeTrade,
+  isClosedTradeType,
+} from "./tradeFilterUtils";
 
 function tradeSignalFrom(trade) {
   return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
@@ -811,6 +819,8 @@ const filteredTradeData = useMemo(() => {
     return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : true; // default allow unknown keys
   };
  
+  const activeViewDay = resolveActiveViewDay(viewDay, fromDate, toDate);
+
   const baseFiltered = tradeData.filter(trade => {
 
     if (!includeMinClose && trade.min_close === "Min_close") return false;
@@ -830,27 +840,24 @@ const filteredTradeData = useMemo(() => {
       return false; // Neither selected: show nothing
     }
 
-    // ✅ Date filter: single-day view uses close time for closed; running only on today
-    let isDateInRange = true;
-    if (viewDay) {
-      isDateInRange = matchesSingleDayView(trade, viewDay);
+    // Single-day view: closed on that day; running only when that day is today
+    if (activeViewDay) {
+      if (!matchesSingleDayView(trade, activeViewDay)) return false;
     } else if (fromDate || toDate) {
       if (!trade.candel_time) return false;
       const tradeTime = moment(trade.candel_time);
-      isDateInRange =
+      const isDateInRange =
         (!fromDate || tradeTime.isSameOrAfter(fromDate)) &&
         (!toDate || tradeTime.isSameOrBefore(toDate));
+      if (!isDateInRange) return false;
     }
 
-    if (!isDateInRange) return false;
-
-    // Running/assign without candle time still OK when day view is today-only running
-    if (!viewDay && !trade.candel_time) return false;
-    if (viewDay && !trade.candel_time) {
-      const type = String(trade.type || "").toLowerCase();
-      const needsCandle = !["running", "hedge_hold", "close", "hedge_close"].includes(type);
+    if (!activeViewDay && !trade.candel_time) return false;
+    if (activeViewDay && !trade.candel_time) {
+      const type = getTradeType(trade);
+      const needsCandle = !isRunningLikeTrade(trade) && !isClosedTradeType(trade);
       if (needsCandle) return false;
-      if ((type === "close" || type === "hedge_close") && !getTradeCloseMoment(trade)) return false;
+      if (isClosedTradeType(trade) && !getTradeCloseMoment(trade)) return false;
     }
 
     if (!(isSignalSelected && isMachineSelected && isIntervalSelected && isActionSelected)) {
