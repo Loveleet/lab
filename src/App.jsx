@@ -27,9 +27,11 @@ import ToolbarSegment from "./components/ToolbarSegment";
 import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
-import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, loadClosedFromLocalCache } from "./tradesCache";
+import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed } from "./tradesCache";
 import {
   isHedgeClosedTrade,
+  isDirectClosedTrade,
+  getTradePl,
   matchesSingleDayView,
   getTradeCloseMoment,
   resolveActiveViewDay,
@@ -789,28 +791,6 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
     refreshAllData();
   }, [refreshAllData]);
 
-  // Instant paint from IndexedDB closed cache (before network)
-  useEffect(() => {
-    let cancelled = false;
-    loadClosedFromLocalCache().then((local) => {
-      if (cancelled || !local?.trades?.length) return;
-      closedTradesRef.current = local.trades;
-      closedMetaRef.current = local.meta;
-      setTradeData((prev) => mergeRunningAndClosed(prev || [], local.trades));
-      setClosedCacheStats({
-        closedCount: local.meta?.closedCount ?? local.trades.length,
-        runningCount: "—",
-        fromFile: true,
-        fromIndexedDb: true,
-        closedSkipped: true,
-        closedMode: "cache",
-      });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   useEffect(() => {
     refreshAllData();
   }, [refreshAllData]);
@@ -990,10 +970,9 @@ const getFilteredForTitle = useMemo(() => {
       pushTo("Total_Closed_Stats");
       pushTo("Closed_Count_Stats");
       
-      if (!isHedgeClosedTrade(trade)) pushTo("Direct_Closed_Stats");
+      if (isDirectClosedTrade(trade)) pushTo("Direct_Closed_Stats");
     }
     
-    // Hedge Closed Stats — hedge_close plus loss-making hedge direct closes
     if (isHedgeClosedTrade(trade)) {
       pushTo("Hedge_Closed_Stats");
     }
@@ -1154,11 +1133,11 @@ useEffect(() => {
   investmentAvailable = investmentAvailable < 0 ? 0 : investmentAvailable; // ✅ Prevent negative values
 
   const closePlus = filteredTradeData
-    .filter(trade => trade.pl_after_comm > 0 && trade.type === "close" && !isHedgeClosedTrade(trade))
-    .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
+    .filter(trade => isDirectClosedTrade(trade) && getTradePl(trade) > 0)
+    .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const closeMinus = filteredTradeData
-    .filter(trade => trade.pl_after_comm < 0 && trade.type === "close" && !isHedgeClosedTrade(trade))
-    .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
+    .filter(trade => isDirectClosedTrade(trade) && getTradePl(trade) < 0)
+    .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const runningPlusFiltered = filteredTradeData
     .filter(trade => {
       const isHedgeEffective = parseHedge(trade.hedge) || trade.type === "hedge_hold";
@@ -1276,14 +1255,12 @@ useEffect(() => {
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
 
   const hedgeClosedPlus = filteredTradeData
-  .filter(trade => isHedgeClosedTrade(trade) && trade.pl_after_comm > 0)
-  .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
+  .filter(trade => isHedgeClosedTrade(trade) && getTradePl(trade) > 0)
+  .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const hedgeClosedMinus = filteredTradeData
-  .filter(trade => isHedgeClosedTrade(trade) && trade.pl_after_comm < 0)
-  .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
-  const hedgeClosedTotal = filteredTradeData
   .filter(trade => isHedgeClosedTrade(trade))
-  .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
+  .reduce((sum, trade) => sum + getTradePl(trade), 0);
+  const hedgeClosedTotal = hedgeClosedMinus + hedgeClosedPlus;
   const totalClosedTotal = closePlus + hedgeClosedPlus + closeMinus + hedgeClosedMinus;
   
   const minCloseProfitVlaue = filteredTradeData
@@ -1341,7 +1318,7 @@ Direct_Closed_Stats: (
                 &nbsp;
              
               <span title="Closed Count" className={`relative px-[3px] text-yellow-300 font-semibold  font-semibold`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}>
-                {filteredTradeData.filter(trade => trade.type === "close" && !isHedgeClosedTrade(trade)).length}
+                {filteredTradeData.filter(trade => isDirectClosedTrade(trade)).length}
               </span>
              
               <div style={{ height: '14px' }} />

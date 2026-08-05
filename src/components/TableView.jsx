@@ -33,7 +33,7 @@ const parseBoolean = (value) => {
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import moment from "moment";
-import { isHedgeClosedTrade, parseHedge } from "../tradeFilterUtils";
+import { isHedgeClosedTrade, isDirectClosedTrade, parseHedge } from "../tradeFilterUtils";
 
 import * as XLSX from "xlsx";
 import { Home, BarChart, FileText, Menu, ChevronDown, ChevronRight } from "lucide-react";
@@ -657,7 +657,7 @@ useEffect(() => {
       filteredTrades = filteredTrades.filter(trade => trade.type === "close" || trade.type === "hedge_close");
       break;
     case "Direct_Closed_Stats":
-      filteredTrades = filteredTrades.filter(trade => trade.type === "close" && !isHedgeClosedTrade(trade));
+      filteredTrades = filteredTrades.filter(trade => isDirectClosedTrade(trade));
       break;
     case "Hedge_Closed_Stats":
       filteredTrades = filteredTrades.filter(trade => isHedgeClosedTrade(trade));

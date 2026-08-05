@@ -345,7 +345,7 @@ async function requireAuth(req, res, next) {
 
 // Public paths: no auth (so GitHub Pages can show data). Add signal paths when ALLOW_PUBLIC_READ_SIGNALS.
 const PUBLIC_API_PATHS = ["/api/health", "/api/server-info", "/api/tunnel-url", "/api/alert-rule-books"];
-const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/calculate-signals"];
+const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/calculate-signals"];
 const ALLOW_PUBLIC_READ_SIGNALS = String(process.env.ALLOW_PUBLIC_READ_SIGNALS || "").toLowerCase() === "true";
 const PUBLIC_READ_SIGNAL_PATHS = ["/api/pairstatus", "/api/active-loss", "/api/open-position", "/api/calculate-signals"];
 
@@ -1159,6 +1159,25 @@ app.get("/api/trades/closed/file", async (req, res) => {
     }
     console.error("❌ [Trades/closed/file] Error:", error.message);
     res.status(500).json({ error: error.message || "Failed to read closed trades file" });
+  }
+});
+
+// POST /api/trades/closed/file/sync — await DB→JSONL sync (shared cloud file for all users)
+app.post("/api/trades/closed/file/sync", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.json({ ok: true, count: 0, _meta: { closedCount: 0 } });
+    const result = await ensureClosedTradesFile(pool, { force: false });
+    res.json({
+      ok: true,
+      count: result.trades.length,
+      updated: result.updated,
+      _meta: result.meta,
+      syncState: closedFileSyncState,
+    });
+  } catch (error) {
+    console.error("❌ [Trades/closed/file/sync] Error:", error.message);
+    res.status(500).json({ error: error.message || "Failed to sync closed trades file" });
   }
 });
 

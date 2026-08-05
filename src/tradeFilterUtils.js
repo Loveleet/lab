@@ -40,16 +40,19 @@ export function isRunningLikeTrade(trade) {
   );
 }
 
-/** Closed hedge: explicit hedge_close, or direct close with hedge flag and loss. */
+/** Closed hedge: any closed trade closed in minus (loss). */
+export function getTradePl(trade) {
+  const pl = parseFloat(trade?.pl_after_comm ?? trade?.Pl_after_comm);
+  return Number.isNaN(pl) ? 0 : pl;
+}
+
 export function isHedgeClosedTrade(trade) {
-  const type = getTradeType(trade);
-  if (type === "hedge_close") return true;
-  if (type === "close") {
-    const hedgeValue = trade.hedge ?? trade.Hedge ?? trade.hedge_bool ?? trade.Hedge_bool;
-    const pl = parseFloat(trade.pl_after_comm ?? trade.Pl_after_comm);
-    return parseHedge(hedgeValue) && !Number.isNaN(pl) && pl < 0;
-  }
-  return false;
+  return isClosedTradeType(trade) && getTradePl(trade) < 0;
+}
+
+/** Direct closed: any closed trade not in minus (profit or breakeven). */
+export function isDirectClosedTrade(trade) {
+  return isClosedTradeType(trade) && getTradePl(trade) >= 0;
 }
 
 export function getTradeCloseMoment(trade) {

@@ -1,22 +1,15 @@
 /**
- * Closed trades strategy (matches intended plan):
- * 1. First visit: download closed in small pages → show UI after page 1 → save IndexedDB
- * 2. Refresh: show IndexedDB closed immediately + fetch running + tiny meta
- * 3. If meta in sync → skip closed download
- * 4. If DB ahead → fetch only newly closed (since_at)
- * Server keeps data/closed_trades.json in background; browser does not wait on the 18MB file.
+ * Closed trades: canonical copy lives on the cloud server (data/closed_trades.jsonl).
+ * Browser keeps closed rows in memory for the current session only — no IndexedDB.
+ * Refresh: running + meta + sync server file + fetch any missing closed rows from DB.
  */
 
 import { apiFetch } from "./config";
 
 const RUNNING_TYPES = new Set(["running", "hedge_hold", "assigned", "assign"]);
 const CLOSED_TYPES = new Set(["close", "hedge_close"]);
-
-const IDB_NAME = "lab_trades_cache";
-const IDB_VERSION = 1;
-const IDB_STORE = "closed";
-const IDB_KEY = "closed_v1";
 const CLOSED_PAGE_SIZE = 800;
+const SESSION_META_KEY = "lab_closed_meta_v2";
 
 export function tradeRowKey(t) {
   const uid = t?.unique_id ?? t?.Unique_ID ?? t?.uid;
@@ -52,137 +45,53 @@ function mergeClosedRows(existing, incoming) {
   return [...map.values()];
 }
 
-function splitTrades(trades) {
-  const running = [];
-  const closed = [];
-  for (const t of trades || []) {
-    if (isRunningTrade(t)) running.push(t);
-    else if (isClosedTrade(t)) closed.push(t);
-    else running.push(t);
-  }
-  return { running, closed };
-}
-
 function normalizeMetaTs(ts) {
   if (ts == null || ts === "") return null;
   const n = new Date(ts).getTime();
   return Number.isNaN(n) ? null : new Date(n).toISOString();
 }
 
-export function metaMatches(a, b, localClosedCount) {
-  if (!a || !b) return false;
-  const countOk = Number(a.closedCount) === Number(b.closedCount);
-  const tsOk = normalizeMetaTs(a.lastClosedAt) === normalizeMetaTs(b.lastClosedAt);
-  const localOk =
-    localClosedCount == null || Number(localClosedCount) === Number(b.closedCount);
-  return countOk && tsOk && localOk;
-}
-
-/** True when DB has more/different closed data than local cache. */
-export function closedSyncNeeded(cachedMeta, dbMeta, localClosedCount) {
-  if (!dbMeta) return false;
-  const dbCount = Number(dbMeta.closedCount);
-  const localCount = Number(localClosedCount ?? cachedMeta?.closedCount ?? 0);
-  if (localCount < dbCount) return true;
-  if (!cachedMeta) return dbCount > 0 && localCount === 0;
-  if (Number(cachedMeta.closedCount) !== dbCount) return true;
-  if (normalizeMetaTs(cachedMeta.lastClosedAt) !== normalizeMetaTs(dbMeta.lastClosedAt)) {
-    return true;
-  }
-  return false;
-}
-
-function openIdb() {
-  return new Promise((resolve, reject) => {
-    if (typeof indexedDB === "undefined") {
-      reject(new Error("IndexedDB unavailable"));
-      return;
-    }
-    const req = indexedDB.open(IDB_NAME, IDB_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error("IndexedDB open failed"));
-  });
-}
-
-async function idbGet() {
+function loadSessionMeta() {
   try {
-    const db = await openIdb();
-    return await new Promise((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readonly");
-      const req = tx.objectStore(IDB_STORE).get(IDB_KEY);
-      req.onsuccess = () => resolve(req.result || null);
-      req.onerror = () => reject(req.error);
-      tx.oncomplete = () => db.close();
-    });
+    const raw = sessionStorage.getItem(SESSION_META_KEY);
+    if (!raw) return null;
+    const m = JSON.parse(raw);
+    return m?.closedCount != null
+      ? {
+          closedCount: m.closedCount,
+          lastClosedAt: normalizeMetaTs(m.lastClosedAt),
+          runningCount: m.runningCount,
+        }
+      : null;
   } catch {
     return null;
   }
 }
 
-async function idbSet(payload) {
+function saveSessionMeta(meta) {
+  if (!meta) return;
   try {
-    const db = await openIdb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).put(payload, IDB_KEY);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    });
-    return true;
-  } catch (e) {
-    console.warn("[tradesCache] IndexedDB save failed:", e?.message || e);
-    return false;
-  }
-}
-
-async function idbClear() {
-  try {
-    const db = await openIdb();
-    await new Promise((resolve, reject) => {
-      const tx = db.transaction(IDB_STORE, "readwrite");
-      tx.objectStore(IDB_STORE).delete(IDB_KEY);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => reject(tx.error);
-    });
+    sessionStorage.setItem(
+      SESSION_META_KEY,
+      JSON.stringify({
+        closedCount: meta.closedCount,
+        lastClosedAt: normalizeMetaTs(meta.lastClosedAt),
+        runningCount: meta.runningCount,
+        savedAt: new Date().toISOString(),
+      })
+    );
   } catch (_) {}
 }
 
-export async function loadClosedFromLocalCache() {
-  const row = await idbGet();
-  if (!row || !Array.isArray(row.trades) || row.trades.length === 0) return null;
-  return {
-    trades: row.trades,
-    meta: row.meta
-      ? {
-          closedCount: row.meta.closedCount ?? row.trades.length,
-          lastClosedAt: normalizeMetaTs(row.meta.lastClosedAt),
-          runningCount: row.meta.runningCount,
-        }
-      : null,
-  };
+function clearSessionMeta() {
+  try {
+    sessionStorage.removeItem(SESSION_META_KEY);
+  } catch (_) {}
 }
 
-async function saveClosedToLocalCache(meta, trades) {
-  if (!meta || !Array.isArray(trades) || trades.length === 0) return;
-  await idbSet({
-    trades,
-    meta: {
-      closedCount: meta.closedCount ?? trades.length,
-      lastClosedAt: normalizeMetaTs(meta.lastClosedAt),
-      runningCount: meta.runningCount,
-      savedAt: new Date().toISOString(),
-    },
-  });
+/** @deprecated No browser trade cache — returns null. Meta-only via sessionStorage internally. */
+export async function loadClosedFromLocalCache() {
+  return null;
 }
 
 async function fetchTradesMeta() {
@@ -203,6 +112,22 @@ async function fetchRunningTrades() {
   if (!res.ok) throw new Error(`running trades HTTP ${res.status}`);
   const json = await res.json();
   return { authRequired: false, trades: Array.isArray(json.trades) ? json.trades : [] };
+}
+
+async function syncServerClosedFile() {
+  try {
+    const res = await apiFetch("/api/trades/closed/file/sync", { method: "POST" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchFileStatus() {
+  const res = await apiFetch("/api/trades/closed/file/status");
+  if (!res.ok) return null;
+  return res.json();
 }
 
 async function fetchClosedIncremental(sinceAt, onProgress) {
@@ -248,30 +173,11 @@ async function fetchClosedTail(limit, onProgress) {
   return { authRequired: false, trades };
 }
 
-async function triggerServerClosedSync() {
-  try {
-    await apiFetch("/api/trades/closed/file/status");
-  } catch (_) {}
-}
-
-async function fetchFileStatus() {
-  const res = await apiFetch("/api/trades/closed/file/status");
-  if (!res.ok) return null;
-  return res.json();
-}
-
-/**
- * First-time closed load: pages of ~800 (not the 18MB file).
- * Calls onPage after every page so the grid can show closed immediately.
- */
 async function fetchClosedPaged({ onProgress, onPage } = {}) {
   let page = 1;
   let all = [];
   let closedCount = null;
   let lastClosedAt = null;
-
-  // Kick server file sync in background (do not await body)
-  fetchFileStatus().catch(() => {});
 
   while (true) {
     const res = await apiFetch(`/api/trades/closed?page=${page}&limit=${CLOSED_PAGE_SIZE}`);
@@ -303,7 +209,6 @@ async function fetchClosedPaged({ onProgress, onPage } = {}) {
     page += 1;
   }
 
-  // Best-effort lastClosedAt from meta endpoint if not in page response
   if (closedCount != null) {
     const meta = await fetchTradesMeta();
     lastClosedAt = meta?.lastClosedAt ?? null;
@@ -316,7 +221,7 @@ async function fetchClosedPaged({ onProgress, onPage } = {}) {
       downloaded: all.length,
       total: all.length,
       percent: 100,
-      message: `Closed loaded (${all.length}) — cached for next refresh`,
+      message: `Closed loaded (${all.length}) from server`,
     });
   }
 
@@ -330,28 +235,35 @@ async function fetchClosedPaged({ onProgress, onPage } = {}) {
   };
 }
 
+async function gapFillClosed(closed, dbMeta, onProgress) {
+  if (!dbMeta || closed.length >= dbMeta.closedCount) return closed;
+  const gap = dbMeta.closedCount - closed.length;
+  const tailResult = await fetchClosedTail(gap + 150, onProgress);
+  if (tailResult.authRequired) return closed;
+  return mergeClosedRows(closed, tailResult.trades);
+}
+
 export async function flushClosedCache() {
   const res = await apiFetch("/api/trades/closed/file/flush", { method: "POST" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `flush failed HTTP ${res.status}`);
   }
-  await idbClear();
+  clearSessionMeta();
   return true;
 }
 
 export async function getClosedCacheStats() {
-  const local = await loadClosedFromLocalCache();
   const status = await fetchFileStatus().catch(() => null);
   return {
-    cachedClosedCount: local?.trades?.length ?? status?.fileCount ?? 0,
-    closedCount: local?.meta?.closedCount ?? status?.fileMeta?.closedCount ?? status?.fileCount ?? 0,
-    runningCount: local?.meta?.runningCount,
-    lastClosedAt: local?.meta?.lastClosedAt ?? status?.fileMeta?.lastClosedAt ?? null,
+    cachedClosedCount: status?.fileLineCount ?? status?.fileCount ?? 0,
+    closedCount: status?.dbMeta?.closedCount ?? status?.fileMeta?.closedCount ?? 0,
+    runningCount: status?.dbMeta?.runningCount,
+    lastClosedAt: status?.fileMeta?.lastClosedAt ?? status?.dbMeta?.lastClosedAt ?? null,
     lastSyncAt: status?.fileMeta?.lastSyncAt ?? null,
     fromFile: true,
-    fromIndexedDb: !!local,
-    filePath: status?.filePath ?? "data/closed_trades.json",
+    fromIndexedDb: false,
+    filePath: status?.filePath ?? "data/closed_trades.jsonl",
   };
 }
 
@@ -364,7 +276,8 @@ async function fetchLegacyAllTrades(onProgress) {
   if (!res.ok) throw new Error(`trades HTTP ${res.status}`);
   const json = await res.json();
   const trades = Array.isArray(json.trades) ? json.trades : [];
-  const { running, closed } = splitTrades(trades);
+  const running = trades.filter(isRunningTrade);
+  const closed = trades.filter(isClosedTrade);
   if (onProgress) {
     onProgress({ phase: "legacy", downloaded: trades.length, total: trades.length, percent: 100 });
   }
@@ -402,17 +315,8 @@ export async function fetchTradesSmart({
     return fetchLegacyAllTrades(onProgress);
   }
 
-  // ── 1. Local closed first ──
   let closed = Array.isArray(cachedClosed) && cachedClosed.length ? cachedClosed : [];
-  let metaForCompare = cachedMeta || null;
-
-  if (!closed.length || !metaForCompare) {
-    const local = await loadClosedFromLocalCache();
-    if (local?.trades?.length) {
-      closed = local.trades;
-      metaForCompare = local.meta || metaForCompare;
-    }
-  }
+  let metaForCompare = cachedMeta || loadSessionMeta();
 
   if (closed.length && onEarlyData) {
     onEarlyData(closed, metaForCompare);
@@ -423,12 +327,17 @@ export async function fetchTradesSmart({
       phase: "running",
       percent: closed.length ? 20 : 0,
       message: closed.length
-        ? `Showing ${closed.length} cached closed — fetching running…`
+        ? `Showing ${closed.length} closed (session) — fetching running…`
         : "Fetching running trades…",
     });
   }
 
-  // ── 2. Small network: running + meta ──
+  // Sync cloud JSONL file first so all users share one canonical closed file
+  if (onProgress) {
+    onProgress({ phase: "sync", percent: 10, message: "Syncing cloud closed file…" });
+  }
+  await syncServerClosedFile();
+
   const [runningResult, dbMeta] = await Promise.all([fetchRunningTrades(), fetchTradesMeta()]);
 
   if (runningResult.authRequired) {
@@ -446,63 +355,34 @@ export async function fetchTradesSmart({
 
   if (onRunning) onRunning(running, closed);
 
-  if (onProgress) {
-    onProgress({
-      phase: "running",
-      downloaded: running.length,
-      total: running.length,
-      percent: 60,
-      message: `${running.length} running · checking closed sync…`,
-    });
-  }
-
   if (forceFullClosed) {
     await flushClosedCache();
     closed = [];
     metaForCompare = null;
   }
 
-  let closedSkipped = false;
-  let closedMode = "cache";
+  const dbCount = metaSnapshot?.closedCount ?? 0;
+  const needsClosedSync = !forceFullClosed && metaSnapshot && closed.length < dbCount;
 
-  const needsClosedSync =
-    !forceFullClosed &&
-    metaSnapshot &&
-    closedSyncNeeded(metaForCompare, metaSnapshot, closed.length);
+  let closedMode = "session";
 
-  if (!forceFullClosed && metaSnapshot && closed.length > 0 && !needsClosedSync) {
-    closedSkipped = true;
-    closedMode = "cache";
-    if (onProgress) {
-      onProgress({
-        phase: "cache",
-        percent: 100,
-        message: `Closed in sync (${closed.length}) — skipped download`,
-      });
-    }
-    triggerServerClosedSync();
-  } else if (needsClosedSync && closed.length > 0 && metaForCompare?.lastClosedAt) {
+  if (needsClosedSync && closed.length > 0) {
     closedMode = "incremental";
-    const incResult = await fetchClosedIncremental(metaForCompare.lastClosedAt, onProgress);
-    if (incResult.authRequired) return { authRequired: true, trades: [] };
-    closed = mergeClosedRows(closed, incResult.trades);
-    if (metaSnapshot && closed.length < metaSnapshot.closedCount) {
-      const gap = metaSnapshot.closedCount - closed.length;
-      const tailResult = await fetchClosedTail(gap + 100, onProgress);
-      if (tailResult.authRequired) return { authRequired: true, trades: [] };
-      closed = mergeClosedRows(closed, tailResult.trades);
-      closedMode = closed.length >= metaSnapshot.closedCount ? "incremental+gap" : "gap-fill";
+    const sinceAt = metaForCompare?.lastClosedAt || closed.reduce((max, t) => {
+      const ts = t.created_at || t.operator_close_time || t.candel_time;
+      if (!ts) return max;
+      const n = new Date(ts).getTime();
+      return !max || n > new Date(max).getTime() ? new Date(ts).toISOString() : max;
+    }, null);
+
+    if (sinceAt) {
+      const incResult = await fetchClosedIncremental(sinceAt, onProgress);
+      if (incResult.authRequired) return { authRequired: true, trades: [] };
+      closed = mergeClosedRows(closed, incResult.trades);
     }
-    triggerServerClosedSync();
-  } else if (needsClosedSync && closed.length > 0 && !metaForCompare?.lastClosedAt) {
-    closedMode = "gap-fill";
-    const gap = (metaSnapshot?.closedCount ?? 0) - closed.length;
-    const tailResult = await fetchClosedTail(Math.max(gap + 100, 200), onProgress);
-    if (tailResult.authRequired) return { authRequired: true, trades: [] };
-    closed = mergeClosedRows(closed, tailResult.trades);
-    triggerServerClosedSync();
+    closed = await gapFillClosed(closed, metaSnapshot, onProgress);
+    closedMode = closed.length >= dbCount ? "incremental+gap" : "gap-fill";
   } else if (!closed.length || forceFullClosed) {
-    // First time: paged download (shows after first page) — never the 18MB file
     closedMode = "paged";
     const closedResult = await fetchClosedPaged({
       onProgress,
@@ -516,16 +396,21 @@ export async function fetchTradesSmart({
       metaSnapshot.lastClosedAt = closedResult.meta.lastClosedAt;
       metaSnapshot.closedCount = closedResult.meta.closedCount ?? metaSnapshot.closedCount;
     }
-  } else {
-    closedSkipped = true;
-    closedMode = "cache";
-    if (onProgress) {
-      onProgress({
-        phase: "cache",
-        percent: 100,
-        message: `Using cached closed (${closed.length})`,
-      });
-    }
+  } else if (needsClosedSync) {
+    closed = await gapFillClosed(closed, metaSnapshot, onProgress);
+    closedMode = "gap-fill";
+  } else if (onProgress) {
+    onProgress({
+      phase: "cache",
+      percent: 100,
+      message: `Closed in sync (${closed.length}) — cloud file`,
+    });
+  }
+
+  // Final safety: always gap-fill if still short vs DB
+  if (metaSnapshot && closed.length < metaSnapshot.closedCount) {
+    closed = await gapFillClosed(closed, metaSnapshot, onProgress);
+    closedMode = "gap-fill-final";
   }
 
   const trades = mergeRunningAndClosed(running, closed);
@@ -535,13 +420,7 @@ export async function fetchTradesSmart({
     runningCount: running.length,
   };
 
-  if (finalMeta && closed.length > 0) {
-    // Don't block UI paint on IndexedDB write
-    saveClosedToLocalCache(
-      { ...finalMeta, runningCount: running.length },
-      closed
-    ).catch(() => {});
-  }
+  saveSessionMeta({ ...finalMeta, runningCount: running.length });
 
   console.log(
     "[tradesCache]",
@@ -549,7 +428,7 @@ export async function fetchTradesSmart({
     "running +",
     closed.length,
     "closed",
-    `(${closedMode}${closedSkipped ? ", skipped net" : ""})`,
+    `(${closedMode}, db=${dbCount})`,
     "=",
     trades.length,
     "total"
@@ -566,8 +445,8 @@ export async function fetchTradesSmart({
     stats: {
       runningCount: running.length,
       closedCount: closed.length,
-      fromFile: closedMode === "paged",
-      closedSkipped,
+      fromFile: true,
+      closedSkipped: !needsClosedSync && closed.length >= dbCount,
       closedMode,
     },
   };
