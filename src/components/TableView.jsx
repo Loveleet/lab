@@ -171,7 +171,7 @@ const formatTradeData = (trade, index) => ({
     })(),
   });
 
-const TableView =  ({ title, tradeData, clientData, activeSubReport, setActiveSubReport }) => {
+const TableView =  ({ title, tradeData, clientData, activeSubReport, setActiveSubReport, binanceRefreshNonce = 0 }) => {
   const normalizedTitle = React.useMemo(() => title.replace(/\s+/g, "_").trim(), [title]);
   // Chart settings state, persisted to localStorage
   const [chartSettings, setChartSettings] = useState(() => {
@@ -247,6 +247,8 @@ const TableView =  ({ title, tradeData, clientData, activeSubReport, setActiveSu
   const [filteredData, setFilteredData] = useState([]);
   const [filteredRawTrades, setFilteredRawTrades] = useState([]);
   const [exchangeDataBySymbol, setExchangeDataBySymbol] = useState({});
+  const [binancePositionsLoading, setBinancePositionsLoading] = useState(false);
+  const lastBinanceNonceRef = useRef(0);
   const [expandedExchangeRow, setExpandedExchangeRow] = useState(null);
   const [sortConfig, setSortConfig] = React.useState({ key: null, direction: 'asc' });
   const [selectedRow, setSelectedRow] = useState(null);
@@ -762,8 +764,12 @@ useEffect(() => {
   setFilteredRawTrades(filteredTrades);
 }, [title, tradeData, activeSubReport, clientData, searchInput]);
 
-  // Fetch exchange position for symbols with exist_in_exchange (poll every 60 sec)
+  // Fetch live Binance overlay only when Refresh Binance is clicked (not on table/filter refresh)
   useEffect(() => {
+    if (!binanceRefreshNonce || binanceRefreshNonce === lastBinanceNonceRef.current) {
+      return;
+    }
+    lastBinanceNonceRef.current = binanceRefreshNonce;
     const isExistInExchange = (t) =>
       t.exist_in_exchange === true || t.exist_in_exchange === "true" || t.exist_in_exchange === 1;
     const symbols = [...new Set(
@@ -776,9 +782,12 @@ useEffect(() => {
       setExchangeDataBySymbol({});
       return;
     }
+    let cancelled = false;
     const fetchAll = async () => {
+      setBinancePositionsLoading(true);
       const next = {};
       for (const sym of symbols) {
+        if (cancelled) return;
         try {
           const res = await apiFetch(api(`/api/open-position?symbol=${encodeURIComponent(sym)}`));
           const data = await res.json().catch(() => ({}));
@@ -787,12 +796,16 @@ useEffect(() => {
           next[sym] = { ok: false, error: "Network error" };
         }
       }
-      setExchangeDataBySymbol(next);
+      if (!cancelled) {
+        setExchangeDataBySymbol(next);
+        setBinancePositionsLoading(false);
+      }
     };
     fetchAll();
-    const id = setInterval(fetchAll, 60 * 1000);
-    return () => clearInterval(id);
-  }, [filteredRawTrades]);
+    return () => {
+      cancelled = true;
+    };
+  }, [filteredRawTrades, binanceRefreshNonce]);
 
   const handleOpenReport = (title, sortedData, fontSizeLevel = 3) => {
     if (!sortedData || sortedData.length === 0) return;

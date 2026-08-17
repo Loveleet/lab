@@ -72,7 +72,7 @@ function getTimeAgo(lastUpdated) {
   }
 }
 
-function EmaCell({ label, trendText, pct }) {
+function EmaCell({ label, trendText, pct, compact = false }) {
   const val = Number(pct);
   const trend = (trendText || "").toLowerCase();
   const isBull = trend.includes("bull");
@@ -97,25 +97,39 @@ function EmaCell({ label, trendText, pct }) {
 
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-lg border-2 px-2.5 py-3 min-h-[5.5rem] w-full min-w-0 h-full ${shellClass}`}
+      className={`flex flex-col items-center justify-center w-full min-w-0 overflow-hidden ${
+        compact
+          ? `rounded-md border px-1 py-1 gap-0 ${shellClass}`
+          : `rounded-lg border-2 px-2.5 py-3 min-h-[5.5rem] h-full ${shellClass}`
+      }`}
       title={hasPct ? `${trendText || ""} ${val.toFixed(1)}%`.trim() : trendText || label}
     >
-      <span className="text-base sm:text-lg font-bold uppercase tracking-wide text-yellow-300 mb-1.5">{label}</span>
+      <span
+        className={`font-bold uppercase tracking-wide text-yellow-300 leading-tight ${
+          compact ? "text-sm" : "text-base sm:text-lg mb-1.5"
+        }`}
+      >
+        {label}
+      </span>
       {empty ? (
-        <span className="text-xs text-slate-600">—</span>
+        <span className={`${compact ? "text-sm" : "text-xs"} text-slate-600`}>—</span>
       ) : (
-        <div className="flex flex-col items-center justify-center flex-1 w-full">
+        <div className={`flex flex-col items-center justify-center w-full ${compact ? "gap-0" : "flex-1"}`}>
           {(isBull || isBear) && (
             <span
-              className={`text-xs sm:text-sm font-bold uppercase tracking-wide mb-1 ${
-                isBull ? "text-emerald-400" : "text-red-400"
-              }`}
+              className={`font-bold uppercase tracking-wide leading-tight ${
+                compact ? "text-sm" : "text-xs sm:text-sm mb-1"
+              } ${isBull ? "text-emerald-400" : "text-red-400"}`}
             >
               {isBull ? "▲ Bull" : "▼ Bear"}
             </span>
           )}
           {hasPct && (
-            <span className={`text-base sm:text-lg font-bold tabular-nums leading-none ${pctClass}`}>
+            <span
+              className={`font-bold tabular-nums ${
+                compact ? "text-sm leading-tight" : "text-base sm:text-lg leading-none"
+              } ${pctClass}`}
+            >
               {val.toFixed(1)}%
             </span>
           )}
@@ -125,8 +139,31 @@ function EmaCell({ label, trendText, pct }) {
   );
 }
 
+export function EmaUpdatedAgo({ emaTrends }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!emaTrends) return;
+    const id = setInterval(() => setTick((t) => t + 1), 60 * 1000);
+    return () => clearInterval(id);
+  }, [emaTrends]);
+
+  const lastUpdatedDisplay = useMemo(() => {
+    if (!emaTrends) return null;
+    const lu = emaTrends.last_updated ?? emaTrends.Last_updated ?? emaTrends.lastUpdated;
+    return getTimeAgo(lu);
+  }, [emaTrends]);
+
+  if (!lastUpdatedDisplay) return null;
+
+  return (
+    <span className="text-sm font-semibold normal-case tracking-normal text-emerald-400 tabular-nums">
+      Updated {lastUpdatedDisplay} ago
+    </span>
+  );
+}
+
 /** EMA trend grid from /api/pairstatus. */
-export default function EmaTrendGrid({ emaTrends, className = "" }) {
+export default function EmaTrendGrid({ emaTrends, className = "", compact = false }) {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (!emaTrends) return;
@@ -143,19 +180,25 @@ export default function EmaTrendGrid({ emaTrends, className = "" }) {
   if (!emaTrends) return null;
 
   return (
-    <div className={`flex flex-col w-full min-w-0 h-full ${className}`.trim()}>
-      <div className="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-violet-600/40 shrink-0">
-        <span className="text-xs font-bold uppercase tracking-widest text-violet-300">EMA Trend</span>
-        {lastUpdatedDisplay && (
-          <span className="text-[10px] text-slate-500 tabular-nums">
-            Updated <span className="text-slate-400">{lastUpdatedDisplay}</span> ago
-          </span>
-        )}
-      </div>
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3 w-full flex-1 auto-rows-fr">
+    <div className={`flex flex-col w-full min-w-0 ${compact ? "" : "h-full"} ${className}`.trim()}>
+      {compact ? null : (
+        <div className="flex items-center justify-between gap-3 mb-3 pb-2 border-b border-violet-600/40 shrink-0">
+          <span className="text-xs font-bold uppercase tracking-widest text-violet-300">EMA Trend</span>
+          {lastUpdatedDisplay && (
+            <span className="text-[10px] text-slate-500 tabular-nums">
+              Updated <span className="text-slate-400">{lastUpdatedDisplay}</span> ago
+            </span>
+          )}
+        </div>
+      )}
+      <div
+        className={`grid w-full min-w-0 ${
+          compact ? "grid-cols-6 gap-1.5" : "grid-cols-3 sm:grid-cols-6 gap-3 flex-1 auto-rows-fr"
+        }`}
+      >
         {EMA_INTERVALS.map(({ label, aliases }) => {
           const { trend, pct } = resolveEmaInterval(emaTrends, aliases);
-          return <EmaCell key={label} label={label} trendText={trend} pct={pct} />;
+          return <EmaCell key={label} label={label} trendText={trend} pct={pct} compact={compact} />;
         })}
       </div>
     </div>

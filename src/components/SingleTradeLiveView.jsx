@@ -2895,15 +2895,19 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     };
   }, [uniqueId]);
 
-  // Call Python CalculateSignals(symbol, interval, candle) every 5 minutes for current trade pair
+  // CalculateSignals on first open, then only when the user clicks Calculate Signals
   const tradePair = rawTrade?.pair || stripHtml(row.Pair) || getSymbolFromUniqueId(uniqueId) || "";
   const signalSymbol = (tradePair && getRobustSymbol(tradePair)) || getSymbolFromUniqueId(uniqueId) || "BTCUSDT";
   const [signalsData, setSignalsData] = useState(null);
   const [signalsError, setSignalsError] = useState(null);
-  const SIGNAL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  const [signalsLoading, setSignalsLoading] = useState(true);
+  const [signalsRefreshKey, setSignalsRefreshKey] = useState(1);
   useEffect(() => {
-    if (!signalSymbol) return;
+    if (!signalSymbol || signalsRefreshKey === 0) return;
+    let cancelled = false;
     const callCalculateSignals = async () => {
+      setSignalsLoading(true);
+      setSignalsError(null);
       try {
         const res = await fetchPythonApi("/api/calculate-signals", {
           method: "POST",
@@ -2911,6 +2915,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
           body: JSON.stringify({ symbol: signalSymbol, candle: "regular" }),
         });
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (!res.ok) {
           const msg = data?.message || res.statusText || "Signals service unavailable";
           setSignalsError(msg);
@@ -2924,15 +2929,19 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
           setSignalsError(data?.message || "No signal data returned");
         }
       } catch (e) {
+        if (cancelled) return;
         const msg = e?.message || String(e);
         setSignalsError(msg);
         console.warn("[CalculateSignals]", msg);
+      } finally {
+        if (!cancelled) setSignalsLoading(false);
       }
     };
-    callCalculateSignals(); // run once on mount / when pair changes
-    const id = setInterval(callCalculateSignals, SIGNAL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [signalSymbol]);
+    callCalculateSignals();
+    return () => {
+      cancelled = true;
+    };
+  }, [signalSymbol, signalsRefreshKey]);
 
   const isExistInExchange = rawTrade && (
     rawTrade.exist_in_exchange === true ||
@@ -2943,7 +2952,8 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   const [exchangePositionData, setExchangePositionData] = useState(null);
   const [openOrdersData, setOpenOrdersData] = useState(null); // { orders: [{ symbol, positionSide, type, stopPrice }] }
   const [futuresBalance, setFuturesBalance] = useState(null); // number = USDT available, null = loading/error
-  const [binanceDataRefreshKey, setBinanceDataRefreshKey] = useState(0);
+  const [binanceDataRefreshKey, setBinanceDataRefreshKey] = useState(1);
+  const [binanceLoading, setBinanceLoading] = useState(true);
   const [emaTrends, setEmaTrends] = useState(null);
 
   // --- Binance Data table settings: column order + visibility (+ actions column) ---
@@ -2991,62 +3001,75 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     }
   }, [exchangePositionData]);
 
-  const EXCHANGE_POLL_MS = 60 * 1000; // 1 min
   useEffect(() => {
-    if (!isExistInExchange || !signalSymbol) {
+    if (!signalSymbol) {
       setExchangePositionData(null);
       return;
     }
+    if (binanceDataRefreshKey === 0) return;
+    let cancelled = false;
     const fetchOpenPosition = async () => {
+      setBinanceLoading(true);
       try {
         const res = await fetchPythonApi(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}`);
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (data?.ok) setExchangePositionData(data);
         else setExchangePositionData({ ok: false, error: data?.message || "Failed to fetch" });
       } catch (e) {
-        setExchangePositionData({ ok: false, error: e?.message || "Network error" });
+        if (!cancelled) setExchangePositionData({ ok: false, error: e?.message || "Network error" });
+      } finally {
+        if (!cancelled) setBinanceLoading(false);
       }
     };
     fetchOpenPosition();
-    const id = setInterval(fetchOpenPosition, EXCHANGE_POLL_MS);
-    return () => clearInterval(id);
-  }, [isExistInExchange, signalSymbol, binanceDataRefreshKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [signalSymbol, binanceDataRefreshKey]);
 
   // Open orders (for stop price per position from main_binance um_get_open_orders)
   useEffect(() => {
-    if (!isExistInExchange || !signalSymbol) {
+    if (!signalSymbol) {
       setOpenOrdersData(null);
       return;
     }
+    if (binanceDataRefreshKey === 0) return;
+    let cancelled = false;
     const fetchOpenOrders = async () => {
       try {
         const res = await fetchPythonApi(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}`);
         const data = await res.json().catch(() => ({}));
-        setOpenOrdersData(data?.ok ? data : { orders: [] });
+        if (!cancelled) setOpenOrdersData(data?.ok ? data : { orders: [] });
       } catch {
-        setOpenOrdersData({ orders: [] });
+        if (!cancelled) setOpenOrdersData({ orders: [] });
       }
     };
     fetchOpenOrders();
-    const id = setInterval(fetchOpenOrders, EXCHANGE_POLL_MS);
-    return () => clearInterval(id);
-  }, [isExistInExchange, signalSymbol, binanceDataRefreshKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [signalSymbol, binanceDataRefreshKey]);
 
-  // Fetch futures balance always (show regardless of whether this trade is on exchange)
+  // Fetch futures balance on first open, then only when user clicks Refresh Binance
   useEffect(() => {
+    if (binanceDataRefreshKey === 0) return;
+    let cancelled = false;
     const fetchFuturesBalance = async () => {
       try {
         const res = await fetchPythonApi("/api/futures-balance");
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (data?.ok && typeof data?.availableBalance === "number") setFuturesBalance(data.availableBalance);
         else setFuturesBalance(null);
       } catch {
-        setFuturesBalance(null);
+        if (!cancelled) setFuturesBalance(null);
       }
     };
     fetchFuturesBalance();
-    const id = setInterval(fetchFuturesBalance, EXCHANGE_POLL_MS);
-    return () => clearInterval(id);
+    return () => {
+      cancelled = true;
+    };
   }, [binanceDataRefreshKey]);
 
   // EMA trends (Last Update Time, EMA 1m, 5m, 15m, 1h, 4h, 1d from pairstatus)
@@ -3766,6 +3789,15 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                   {signalsData?.symbol || signalSymbol || "—"} signals
                 </span>
                 <div className="ml-auto flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSignalsRefreshKey((k) => k + 1)}
+                    disabled={signalsLoading || !signalSymbol}
+                    className="px-2 py-1 rounded-2xl text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white whitespace-nowrap disabled:opacity-50"
+                    title="Fetch 5m/15m/1h/4h klines from Binance and calculate signals. Does not run automatically."
+                  >
+                    {signalsLoading ? "Signals…" : "Calculate Signals"}
+                  </button>
                   {signalsData?.ok && signalsData?.intervals && (
                     <button
                       type="button"
@@ -4001,8 +4033,10 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                     <div className="text-xs opacity-90">{signalsError}</div>
                     <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Start api_signals.py on port 5001, or restart api-signals on the cloud server.</div>
                   </div>
-                ) : (
+                ) : signalsLoading ? (
                   <div className="flex items-center justify-center h-full text-gray-500 dark:text-white text-center p-2">Loading signals…</div>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-gray-500 dark:text-white text-center p-2">Click Calculate Signals to load from Binance</div>
                 )}
               </div>
             </div>
@@ -4042,6 +4076,15 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2.5 bg-gradient-to-r from-teal-800 to-teal-700 text-white font-semibold flex-shrink-0">
             <span className="text-sm sm:text-base">Binance Data</span>
             <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setBinanceDataRefreshKey((k) => k + 1)}
+                disabled={binanceLoading}
+                className="px-3 py-1.5 rounded-2xl-lg bg-amber-500 hover:bg-amber-600 text-xs font-semibold shadow-sm border border-amber-300/60 disabled:opacity-50"
+                title="Fetch position, open orders, and balance from Binance. Does not run automatically."
+              >
+                {binanceLoading ? "Binance…" : "Refresh Binance"}
+              </button>
               <span className="text-white/90 text-xs mr-1">Zoom:</span>
               <ZoomControls
                 onDecrease={zoomOutBackLeft}
@@ -4508,8 +4551,10 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                   </div>
                 ) : isExistInExchange && exchangePositionData?.ok ? (
                   <span className="text-gray-500 dark:text-white text-center">No open position for {signalSymbol}</span>
-                ) : (
+                ) : binanceLoading ? (
                   <span className="text-gray-500 dark:text-white text-center">Loading exchange data…</span>
+                ) : (
+                  <span className="text-gray-500 dark:text-white text-center">Click Refresh Binance to load live position</span>
                 )}
               </div>
             </div>

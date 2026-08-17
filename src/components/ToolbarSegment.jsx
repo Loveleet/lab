@@ -25,11 +25,16 @@ const TONE_STYLES = {
     shell: "border-amber-500/60 bg-gradient-to-br from-amber-950/70 via-slate-900/90 to-amber-900/40 shadow-[inset_0_0_24px_rgba(245,158,11,0.08)]",
     label: "text-amber-300 border-amber-600/50",
   },
+  violet: {
+    shell: "border-violet-500/60 bg-gradient-to-br from-violet-950/70 via-slate-900/90 to-indigo-900/40 shadow-[inset_0_0_24px_rgba(139,92,246,0.08)]",
+    label: "text-violet-300 border-violet-600/50",
+  },
 };
 
 /** Labeled block inside the market toolbar — each group gets its own color. */
 export default function ToolbarSegment({
   label,
+  labelExtra = null,
   children,
   className = "",
   grow = false,
@@ -40,14 +45,15 @@ export default function ToolbarSegment({
   return (
     <div
       className={`rounded-xl border-2 px-3 py-2.5 ${style.shell} ${
-        grow ? "flex-1 min-w-[10rem]" : "shrink-0"
+        grow ? "flex-1 min-w-0" : "shrink-0"
       } ${className}`.trim()}
     >
       {label ? (
         <div
-          className={`text-[10px] font-bold uppercase tracking-widest mb-2 pb-1 border-b ${style.label}`}
+          className={`flex items-baseline justify-between gap-2 mb-2 pb-1 border-b ${style.label}`}
         >
-          {label}
+          <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
+          {labelExtra}
         </div>
       ) : null}
       {children}

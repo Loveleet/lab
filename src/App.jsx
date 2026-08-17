@@ -21,9 +21,8 @@ import { checkSession, logoutApi, extendSession, AuthContext } from './auth';
 
 import GroupViewPage from './pages/GroupViewPage';
 import RefreshControls from './components/RefreshControls';
-import SuperTrendPanel from "./SuperTrendPanel";
-import EmaTrendGrid from "./components/EmaTrendGrid";
 import ToolbarSegment from "./components/ToolbarSegment";
+import EmaTrendGrid, { EmaUpdatedAgo } from "./components/EmaTrendGrid";
 import TradeComparePage from "./components/TradeComparePage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
@@ -77,6 +76,33 @@ function deriveMachinesFromTrades(trades, toMachineKey) {
 
 function deriveSignalsFromTrades(trades) {
   return uniqueSortedStrings(trades.map((t) => normalizeSignalFrom(tradeSignalFrom(t))));
+}
+
+function FlagToggle({ label, on, variant = "buy", onClick, disabled = false, title }) {
+  const activeBuy = on && variant === "buy";
+  const activeSell = on && variant === "sell";
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide border disabled:opacity-50 ${
+        activeBuy
+          ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/60"
+          : activeSell
+          ? "bg-red-500/25 text-red-200 border-red-400/60"
+          : "bg-slate-900/60 text-slate-400 border-slate-600/80"
+      }`}
+    >
+      <span
+        className={`w-2 h-2 rounded-full ${
+          activeBuy ? "bg-emerald-400" : activeSell ? "bg-red-400" : "bg-slate-600"
+        }`}
+      />
+      {on ? `${label} on` : `${label} off`}
+    </button>
+  );
 }
 
 /** Keep prior checkbox state; new keys from trades default to checked. */
@@ -202,9 +228,7 @@ const App = () => {
   const settingsAppliedOnceRef = useRef(false);
   const sessionMenuRef = useRef(null);
 
-  const [superTrendData, setSuperTrendData] = useState([]);
   const [emaTrends, setEmaTrends] = useState(null);
-  const [activeLossFlags, setActiveLossFlags] = useState(null);
   const [autoExecuteMode, setAutoExecuteMode] = useState(null); // { buyActive, sellActive } or null
   const [manageAutoPosition, setManageAutoPosition] = useState(null); // true | false | null (loading)
   /** Buy/Sell scope for manage auto position — maps to DB manage_auto_position.side (BUY|SELL|BOTH) */
@@ -213,19 +237,21 @@ const App = () => {
   const [setAllStopFlow, setSetAllStopFlow] = useState(null);
   const SET_ALL_STOP_SEC_PER_PAIR = 7;
   const HA_STOP_INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d"];
-  // Expose superTrendData for focused debugging (must be at top level, not inside render logic)
-  useEffect(() => {
-    window._superTrendData = superTrendData;
-  }, [superTrendData]);
 
   const [metrics, setMetrics] = useState(null);
   const [selectedBox, setSelectedBox] = useState(null);
   const [tradeData, setTradeData] = useState([]);
+  const [binanceRefreshNonce, setBinanceRefreshNonce] = useState(0);
+  const [binanceRefreshing, setBinanceRefreshing] = useState(false);
   const [closedCacheProgress, setClosedCacheProgress] = useState(null);
   const [closedCacheStats, setClosedCacheStats] = useState(null);
   const forceFullClosedRef = useRef(false);
   const closedTradesRef = useRef([]);
   const closedMetaRef = useRef(null);
+  const [toolbarPasswordPrompt, setToolbarPasswordPrompt] = useState(null);
+  const [toolbarPassword, setToolbarPassword] = useState("");
+  const [toolbarPasswordError, setToolbarPasswordError] = useState("");
+  const [toolbarPasswordSubmitting, setToolbarPasswordSubmitting] = useState(false);
   const [demoDataHint, setDemoDataHint] = useState(null); // when API returns _meta.demoData, show hint instead of demo rows
   const [seedLoading, setSeedLoading] = useState(false);
   const [seedError, setSeedError] = useState(null);
@@ -494,13 +520,6 @@ const [liveFilter, setLiveFilter] = useState(() => {
 useEffect(() => {
   localStorage.setItem("liveFilter", JSON.stringify(liveFilter));
 }, [liveFilter]);
-const [cjFilterMode, setCjFilterMode] = useState(() => {
-  const saved = localStorage.getItem("cjFilterMode");
-  return saved === "true" || saved === "false" || saved === "both" ? saved : "both";
-});
-useEffect(() => {
-  localStorage.setItem("cjFilterMode", cjFilterMode);
-}, [cjFilterMode]);
 const [liveRadioMode, setLiveRadioMode] = useState(() => {
   const saved = localStorage.getItem("liveRadioMode");
   return saved === "true";
@@ -574,16 +593,12 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       setMachines([]);
       setLogData([]);
       setClientData([]);
-      setSuperTrendData([]);
       setEmaTrends(null);
-      setActiveLossFlags(null);
       setDemoDataHint(null);
       return;
     }
     try {
       setApiUnreachable(false);
-      // Non-blocking: sync exchange positions in background (don't delay dashboard load)
-      apiFetch("/api/sync-open-positions").catch(() => {});
 
       let trades = [];
       try {
@@ -660,30 +675,13 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       const logJson = logRes.ok ? await logRes.json() : { logs: [] };
       const logs = Array.isArray(logJson?.logs) ? logJson.logs : [];
 
-      // Public signal endpoints — fetch even when /api/trades returns 401
-      // Fetch SuperTrend data
-      console.log("[API DEBUG] fetch /api/supertrend");
-      const superTrendRes = await apiFetch("/api/supertrend");
-      const superTrendJson = superTrendRes.ok ? await superTrendRes.json() : { supertrend: [] };
-      setSuperTrendData(Array.isArray(superTrendJson.supertrend) ? superTrendJson.supertrend : []);
-
       // Fetch EMA trend data (cache-bust so last_updated is fresh)
       console.log("[API DEBUG] fetch /api/pairstatus");
       const emaRes = await apiFetch(`/api/pairstatus?_=${Date.now()}`);
       const emaJson = emaRes.ok ? await emaRes.json() : null;
       setEmaTrends(emaJson);
 
-      // Fetch BUY/SELL live flags
-      try {
-        console.log("[API DEBUG] fetch /api/active-loss");
-        const flagsRes = await apiFetch("/api/active-loss");
-        const flagsJson = flagsRes.ok ? await flagsRes.json() : null;
-        setActiveLossFlags(flagsJson || null);
-      } catch {
-        setActiveLossFlags(null);
-      }
-
-      // Fetch Auto Execute (LiveAutoActive) status — buyActive, sellActive
+      // Fetch Auto Execute (liveautoactive) status — buyActive, sellActive
       try {
         console.log("[API DEBUG] fetch /api/auto-execute");
         const autoRes = await apiFetch("/api/auto-execute");
@@ -778,6 +776,171 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
     }
   }, [toMachineKey]);
 
+  const handleRefreshBinance = useCallback(async () => {
+    if (binanceRefreshing) return;
+    setBinanceRefreshing(true);
+    try {
+      const res = await apiFetch("/api/sync-open-positions", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        console.warn("[Refresh Binance] sync failed:", body?.message || res.statusText);
+      }
+      await refreshAllData();
+      setBinanceRefreshNonce((n) => n + 1);
+    } catch (e) {
+      console.warn("[Refresh Binance]", e?.message || e);
+    } finally {
+      setBinanceRefreshing(false);
+    }
+  }, [binanceRefreshing, refreshAllData]);
+
+  const toggleAutoExecuteBuy = useCallback(async (password = "") => {
+    if (!autoExecuteMode) return;
+    const next = !autoExecuteMode.buyActive;
+    try {
+      const res = await apiFetch("/api/auto-execute/set", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ buyActive: next, sellActive: autoExecuteMode.sellActive, password: (password || "").trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to update auto position");
+      if (res.ok && data.buyActive !== undefined && data.sellActive !== undefined) {
+        setAutoExecuteMode({ buyActive: data.buyActive, sellActive: data.sellActive });
+      }
+    } catch (e) {
+      throw e;
+    }
+  }, [autoExecuteMode]);
+
+  const toggleAutoExecuteSell = useCallback(async (password = "") => {
+    if (!autoExecuteMode) return;
+    const next = !autoExecuteMode.sellActive;
+    try {
+      const res = await apiFetch("/api/auto-execute/set", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ buyActive: autoExecuteMode.buyActive, sellActive: next, password: (password || "").trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to update auto position");
+      if (res.ok && data.buyActive !== undefined && data.sellActive !== undefined) {
+        setAutoExecuteMode({ buyActive: data.buyActive, sellActive: data.sellActive });
+      }
+    } catch (e) {
+      throw e;
+    }
+  }, [autoExecuteMode]);
+
+  const toggleManagePositionBuy = useCallback(async (password = "") => {
+    if (!manageAutoPositionSides) return;
+    const nextBuy = !manageAutoPositionSides.buyActive;
+    const nextSell = manageAutoPositionSides.sellActive;
+    try {
+      const res = await apiFetch("/api/manage-auto-position/set-side", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ buyActive: nextBuy, sellActive: nextSell, password: (password || "").trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to update manage position");
+      if (res.ok && data.ok) {
+        setManageAutoPositionSides({
+          buyActive: !!data.buyActive,
+          sellActive: !!data.sellActive,
+        });
+      }
+    } catch (e) {
+      throw e;
+    }
+  }, [manageAutoPositionSides]);
+
+  const toggleManagePositionSell = useCallback(async (password = "") => {
+    if (!manageAutoPositionSides) return;
+    const nextBuy = manageAutoPositionSides.buyActive;
+    const nextSell = !manageAutoPositionSides.sellActive;
+    try {
+      const res = await apiFetch("/api/manage-auto-position/set-side", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ buyActive: nextBuy, sellActive: nextSell, password: (password || "").trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to update manage position");
+      if (res.ok && data.ok) {
+        setManageAutoPositionSides({
+          buyActive: !!data.buyActive,
+          sellActive: !!data.sellActive,
+        });
+      }
+    } catch (e) {
+      throw e;
+    }
+  }, [manageAutoPositionSides]);
+
+  const toggleManagePositionEnabled = useCallback(async (password = "") => {
+    if (!manageAutoPositionSides) return;
+    try {
+      const res = await apiFetch("/api/manage-auto-position/toggle", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          buyActive: !!manageAutoPositionSides.buyActive,
+          sellActive: !!manageAutoPositionSides.sellActive,
+          password: (password || "").trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || data.error || "Failed to update manage position");
+      if (res.ok && typeof data.enabled === "boolean") {
+        setManageAutoPosition(data.enabled);
+        if (typeof data.side === "string") {
+          const s = data.side.trim().toUpperCase();
+          if (s === "BUY") setManageAutoPositionSides({ buyActive: true, sellActive: false });
+          else if (s === "SELL") setManageAutoPositionSides({ buyActive: false, sellActive: true });
+          else if (s === "NONE") setManageAutoPositionSides({ buyActive: false, sellActive: false });
+          else setManageAutoPositionSides({ buyActive: true, sellActive: true });
+        }
+      }
+    } catch (e) {
+      throw e;
+    }
+  }, [manageAutoPositionSides]);
+
+  const openToolbarPasswordPrompt = useCallback((action, title, description) => {
+    setToolbarPassword("");
+    setToolbarPasswordError("");
+    setToolbarPasswordSubmitting(false);
+    setToolbarPasswordPrompt({ action, title, description });
+  }, []);
+
+  const closeToolbarPasswordPrompt = useCallback(() => {
+    if (toolbarPasswordSubmitting) return;
+    setToolbarPasswordPrompt(null);
+    setToolbarPassword("");
+    setToolbarPasswordError("");
+  }, [toolbarPasswordSubmitting]);
+
+  const handleToolbarPasswordConfirm = useCallback(async () => {
+    const password = (toolbarPassword || "").trim();
+    if (!password) {
+      setToolbarPasswordError("Enter password");
+      return;
+    }
+    if (!toolbarPasswordPrompt?.action) return;
+    setToolbarPasswordSubmitting(true);
+    setToolbarPasswordError("");
+    try {
+      await toolbarPasswordPrompt.action(password);
+      setToolbarPasswordPrompt(null);
+      setToolbarPassword("");
+    } catch (e) {
+      setToolbarPasswordError(e?.message || "Failed");
+    } finally {
+      setToolbarPasswordSubmitting(false);
+    }
+  }, [toolbarPassword, toolbarPasswordPrompt]);
+
   const handleFlushClosedCache = useCallback(async () => {
     const ok = window.confirm(
       "Delete the server closed-trades JSON file and rebuild it from the database?"
@@ -866,31 +1029,11 @@ const filteredTradeData = useMemo(() => {
       return false;
     }
 
-    const isCj = parseBoolean(trade.commision_journey);
-    if (cjFilterMode === "true" && !isCj) return false;
-    if (cjFilterMode === "false" && isCj) return false;
-
     return true;
   });
 
-  // Business rule: when CJ filter is True, show P/L after deducting $4
-  // for CJ-true trades only (e.g. 34->30, -20->-24). "both"/"false" unchanged.
-  if (cjFilterMode !== "true") return baseFiltered;
-  return baseFiltered.map((trade) => {
-    const isCj = parseBoolean(trade.commision_journey);
-    if (!isCj) return trade;
-    const rawPl = trade.pl_after_comm;
-    const numPl = typeof rawPl === "number" ? rawPl : parseFloat(rawPl);
-    if (Number.isNaN(numPl)) return trade;
-    const adjustedPl = numPl - 4;
-    return {
-      ...trade,
-      pl_after_comm: adjustedPl,
-      ...(Object.prototype.hasOwnProperty.call(trade, "Pl_after_comm") ? { Pl_after_comm: adjustedPl } : {}),
-    };
-  });
-  // console.log('[App.jsx] filteredTradeData:', filteredTradeData);
-}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter, cjFilterMode]);
+  return baseFiltered;
+}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter]);
 
 // Debug: log machine coverage and trade counts (raw vs filtered)
 useEffect(() => {
@@ -1750,10 +1893,6 @@ useEffect(() => {
   }, [liveFilter, syncToServerAndLocal]);
   useEffect(() => {
     if (!settingsAppliedOnceRef.current) return;
-    syncToServerAndLocal("cjFilterMode", cjFilterMode);
-  }, [cjFilterMode, syncToServerAndLocal]);
-  useEffect(() => {
-    if (!settingsAppliedOnceRef.current) return;
     syncToServerAndLocal("liveRadioMode", liveRadioMode ? "true" : "false");
   }, [liveRadioMode, syncToServerAndLocal]);
   useEffect(() => {
@@ -2028,6 +2167,53 @@ useEffect(() => {
             >
               OK
             </button>
+          </div>
+        </div>
+      )}
+      {toolbarPasswordPrompt && (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-labelledby="toolbar-password-title">
+          <div className="bg-white dark:bg-[#222] rounded-xl p-6 max-w-sm w-full shadow-xl border border-gray-200 dark:border-gray-700">
+            <h2 id="toolbar-password-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+              {toolbarPasswordPrompt.title}
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              {toolbarPasswordPrompt.description}
+            </p>
+            <input
+              type="password"
+              value={toolbarPassword}
+              onChange={(e) => setToolbarPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleToolbarPasswordConfirm();
+                }
+              }}
+              autoComplete="current-password"
+              placeholder="Password"
+              className="w-full border-2 rounded-lg px-3 py-2 mb-2 bg-white dark:bg-[#333] text-[#222] dark:text-gray-200 border-gray-300 dark:border-gray-600"
+            />
+            {toolbarPasswordError && (
+              <div className="text-sm text-red-600 dark:text-red-400 mb-3">{toolbarPasswordError}</div>
+            )}
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={closeToolbarPasswordPrompt}
+                disabled={toolbarPasswordSubmitting}
+                className="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleToolbarPasswordConfirm}
+                disabled={toolbarPasswordSubmitting}
+                className="flex-1 py-2 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-semibold disabled:opacity-50"
+              >
+                {toolbarPasswordSubmitting ? "Saving..." : "Confirm"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -2311,6 +2497,15 @@ useEffect(() => {
                   initialIntervalSec={120}
                   initialAutoOn={false}
                 />
+                <button
+                  type="button"
+                  onClick={handleRefreshBinance}
+                  disabled={binanceRefreshing}
+                  title="Call Binance only when you click. Syncs open positions into the DB."
+                  className="px-3 py-1.5 rounded-lg text-sm font-bold border border-teal-600 bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  {binanceRefreshing ? "Binance…" : "Refresh Binance"}
+                </button>
                 <div className="flex flex-col gap-1 min-w-[9rem] max-w-[11rem]">
                   {closedCacheProgress && (
                     <div className="text-[10px] text-gray-600 dark:text-gray-400">
@@ -2367,201 +2562,9 @@ useEffect(() => {
               </h1>
             </div>
 
-              {/* Center: Auto Execute + Manage Auto Position — wraps on zoom */}
-              {autoExecuteMode !== null && (
-                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 flex-1 min-w-[min(100%,20rem)]">
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 justify-center py-2 px-3 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 shadow-sm max-w-full min-w-0">
-                    <span className="text-xs sm:text-sm font-semibold text-gray-600 dark:text-gray-300 shrink-0">Auto Execute</span>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={!!autoExecuteMode.buyActive}
-                          onChange={async () => {
-                            const next = !autoExecuteMode.buyActive;
-                            try {
-                              const res = await apiFetch("/api/auto-execute/set", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ buyActive: next, sellActive: autoExecuteMode.sellActive }),
-                              });
-                              const data = await res.json().catch(() => ({}));
-                              if (res.ok && data.buyActive !== undefined && data.sellActive !== undefined) {
-                                setAutoExecuteMode({ buyActive: data.buyActive, sellActive: data.sellActive });
-                              }
-                            } catch {
-                              // ignore
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-400 dark:border-gray-500 text-emerald-500 focus:ring-2 focus:ring-emerald-500/50"
-                        />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Buy</span>
-                      </label>
-                      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={!!autoExecuteMode.sellActive}
-                          onChange={async () => {
-                            const next = !autoExecuteMode.sellActive;
-                            try {
-                              const res = await apiFetch("/api/auto-execute/set", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ buyActive: autoExecuteMode.buyActive, sellActive: next }),
-                              });
-                              const data = await res.json().catch(() => ({}));
-                              if (res.ok && data.buyActive !== undefined && data.sellActive !== undefined) {
-                                setAutoExecuteMode({ buyActive: data.buyActive, sellActive: data.sellActive });
-                              }
-                            } catch {
-                              // ignore
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-400 dark:border-gray-500 text-emerald-500 focus:ring-2 focus:ring-emerald-500/50"
-                        />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Sell</span>
-                      </label>
-                    </div>
-                    <span
-                      className={`text-xs sm:text-sm px-2 py-1 rounded-lg font-medium min-w-0 max-w-[12rem] sm:max-w-[14rem] overflow-hidden break-words line-clamp-2 text-center ${
-                        autoExecuteMode.buyActive && autoExecuteMode.sellActive
-                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-300/50 dark:border-emerald-600/50"
-                          : !autoExecuteMode.buyActive && !autoExecuteMode.sellActive
-                          ? "bg-red-500/15 text-red-700 dark:text-red-300 border border-red-300/50 dark:border-red-600/50"
-                          : "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-300/50 dark:border-amber-600/50"
-                      }`}
-                      title={autoExecuteMode.buyActive && autoExecuteMode.sellActive
-                        ? "Execute will be done once the P/L crosses 3 USDT for both buy and sell."
-                        : !autoExecuteMode.buyActive && !autoExecuteMode.sellActive
-                        ? "Buy and Sell both are deactive."
-                        : !autoExecuteMode.buyActive
-                        ? "Buy is deactive."
-                        : "Sell is deactive."}
-                    >
-                      {autoExecuteMode.buyActive && autoExecuteMode.sellActive
-                        ? "Execute will be done once the P/L crosses 3 USDT."
-                        : !autoExecuteMode.buyActive && !autoExecuteMode.sellActive
-                        ? "Buy and Sell both are deactive."
-                        : !autoExecuteMode.buyActive
-                        ? "Buy is deactive."
-                        : "Sell is deactive."}
-                    </span>
-                  </div>
-                  {/* Manage Auto Position — Buy/Sell scope (DB side) + enable toggle */}
-                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0 rounded-xl bg-gray-100/80 dark:bg-gray-800/80 border border-gray-200 dark:border-gray-700 px-3 py-2 shadow-sm max-w-full min-w-0">
-                    <span className="text-sm font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">
-                      Manage Auto Position
-                    </span>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          disabled={manageAutoPositionSides == null}
-                          checked={!!manageAutoPositionSides?.buyActive}
-                          onChange={async () => {
-                            if (!manageAutoPositionSides) return;
-                            const nextBuy = !manageAutoPositionSides.buyActive;
-                            const nextSell = manageAutoPositionSides.sellActive;
-                            try {
-                              const res = await apiFetch("/api/manage-auto-position/set-side", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  buyActive: nextBuy,
-                                  sellActive: nextSell,
-                                }),
-                              });
-                              const data = await res.json().catch(() => ({}));
-                              if (res.ok && data.ok) {
-                                setManageAutoPositionSides({
-                                  buyActive: !!data.buyActive,
-                                  sellActive: !!data.sellActive,
-                                });
-                              }
-                            } catch {
-                              // ignore
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-400 dark:border-gray-500 text-emerald-500 focus:ring-2 focus:ring-emerald-500/50"
-                        />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Buy</span>
-                      </label>
-                      <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          disabled={manageAutoPositionSides == null}
-                          checked={!!manageAutoPositionSides?.sellActive}
-                          onChange={async () => {
-                            if (!manageAutoPositionSides) return;
-                            const nextBuy = manageAutoPositionSides.buyActive;
-                            const nextSell = !manageAutoPositionSides.sellActive;
-                            try {
-                              const res = await apiFetch("/api/manage-auto-position/set-side", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  buyActive: nextBuy,
-                                  sellActive: nextSell,
-                                }),
-                              });
-                              const data = await res.json().catch(() => ({}));
-                              if (res.ok && data.ok) {
-                                setManageAutoPositionSides({
-                                  buyActive: !!data.buyActive,
-                                  sellActive: !!data.sellActive,
-                                });
-                              }
-                            } catch {
-                              // ignore
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-gray-400 dark:border-gray-500 text-emerald-500 focus:ring-2 focus:ring-emerald-500/50"
-                        />
-                        <span className="text-sm font-medium text-gray-700 dark:text-gray-200">Sell</span>
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        if (!manageAutoPositionSides) return;
-                        try {
-                          const res = await apiFetch("/api/manage-auto-position/toggle", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              buyActive: !!manageAutoPositionSides.buyActive,
-                              sellActive: !!manageAutoPositionSides.sellActive,
-                            }),
-                          });
-                          const data = await res.json().catch(() => ({}));
-                          if (res.ok && typeof data.enabled === "boolean") {
-                            setManageAutoPosition(data.enabled);
-                            if (typeof data.side === "string") {
-                              const s = data.side.trim().toUpperCase();
-                              if (s === "BUY") {
-                                setManageAutoPositionSides({ buyActive: true, sellActive: false });
-                              } else if (s === "SELL") {
-                                setManageAutoPositionSides({ buyActive: false, sellActive: true });
-                              } else if (s === "NONE") {
-                                setManageAutoPositionSides({ buyActive: false, sellActive: false });
-                              } else {
-                                setManageAutoPositionSides({ buyActive: true, sellActive: true });
-                              }
-                            }
-                          }
-                        } catch {
-                          // ignore
-                        }
-                      }}
-                      className="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 transition-colors whitespace-nowrap"
-                    >
-                      Manage Auto Position
-                    </button>
-                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300 min-w-[2.5rem]">
-                      {manageAutoPosition === null ? "—" : manageAutoPosition ? "true" : "false"}
-                    </span>
-                  </div>
-                  {/* Batch set stop (Binance) — LONG vs SHORT, one API call per pair */}
+              {false && (
+              <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 flex-1 min-w-[min(100%,20rem)]">
+                  {/* Batch set stop (Binance) — hidden; not used */}
                   <div className="flex flex-wrap items-center gap-3 sm:gap-6 shrink-0 border-l border-gray-300 dark:border-gray-600 pl-3 ml-0 sm:ml-1 max-w-full">
                     <button
                       type="button"
@@ -2666,7 +2669,7 @@ useEffect(() => {
                   </div>
                 </div>
               )}
-              </div>
+            </div>
             </div>
             <div className="flex min-w-0 w-full max-w-full">
               {/* Sidebar */}
@@ -2824,7 +2827,7 @@ useEffect(() => {
                   )}
         {/* Toolbar — grouped segments for clear separation */}
         <div className="w-full mb-4 rounded-xl border-2 border-slate-600/70 bg-gradient-to-r from-slate-950 via-slate-900/95 to-slate-950 p-3 sm:p-4 shadow-lg">
-          <div className="flex flex-wrap items-stretch gap-3 w-full">
+          <div className="flex flex-nowrap items-stretch gap-3 w-full">
             <ToolbarSegment label="Layout" tone="cyan">
               <div className="flex items-center gap-2">
                 <button
@@ -2891,74 +2894,111 @@ useEffect(() => {
               </div>
             </ToolbarSegment>
 
-            <ToolbarSegment label="Live flags" tone="rose">
-              {(() => {
-                const toBool = (v) => {
-                  if (v === true || v === "true" || v === 1 || v === "1") return true;
-                  if (typeof v === "string") {
-                    const n = parseFloat(v);
-                    if (!Number.isNaN(n)) return n > 0;
+            <ToolbarSegment label="Auto Position" tone="rose" className="min-w-[18rem]">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between gap-4 w-full">
+                <FlagToggle
+                  label="Buy"
+                  variant="buy"
+                  on={!!autoExecuteMode?.buyActive}
+                  disabled={autoExecuteMode == null}
+                  onClick={() =>
+                    openToolbarPasswordPrompt(
+                      toggleAutoExecuteBuy,
+                      `${autoExecuteMode?.buyActive ? "Disable" : "Enable"} Auto Position BUY`,
+                      "This controls whether BUY trades are allowed to auto-execute on Binance."
+                    )
                   }
-                  return false;
-                };
-                const buy = toBool(activeLossFlags?.buy ?? activeLossFlags?.buy_condition ?? activeLossFlags?.buyflag);
-                const sell = toBool(activeLossFlags?.sell ?? activeLossFlags?.sell_condition ?? activeLossFlags?.sellflag);
-                const Badge = ({ label, on, variant }) => (
-                  <span
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wide border ${
-                      on
-                        ? variant === "buy"
-                          ? "bg-emerald-500/25 text-emerald-200 border-emerald-400/60 animate-pulse"
-                          : "bg-red-500/25 text-red-200 border-red-400/60 animate-pulse"
-                        : "bg-slate-900/60 text-slate-400 border-slate-600/80"
-                    }`}
-                    title={`${label} condition ${on ? "ACTIVE" : "inactive"}`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        on ? (variant === "buy" ? "bg-emerald-400" : "bg-red-400") : "bg-slate-600"
-                      }`}
-                    />
-                    {on ? `Live ${label}` : `${label} off`}
-                  </span>
-                );
-                return (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge label="Buy" on={buy} variant="buy" />
-                    <Badge label="Sell" on={sell} variant="sell" />
-                  </div>
-                );
-              })()}
-            </ToolbarSegment>
-
-            <ToolbarSegment label="CJ" tone="purple">
-              <div className="flex flex-wrap items-center gap-2">
-                {[
-                  { id: "true", label: "True" },
-                  { id: "false", label: "False" },
-                  { id: "both", label: "Both" },
-                ].map((mode) => (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    onClick={() => setCjFilterMode(mode.id)}
-                    className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-all ${
-                      cjFilterMode === mode.id
-                        ? "bg-purple-600 text-white border-purple-400 shadow-sm shadow-purple-900/40"
-                        : "bg-purple-950/50 text-purple-200 border-purple-700/50 hover:bg-purple-900/40"
-                    }`}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
+                  title="Allow BUY orders to auto-execute on Binance"
+                />
+                <FlagToggle
+                  label="Sell"
+                  variant="sell"
+                  on={!!autoExecuteMode?.sellActive}
+                  disabled={autoExecuteMode == null}
+                  onClick={() =>
+                    openToolbarPasswordPrompt(
+                      toggleAutoExecuteSell,
+                      `${autoExecuteMode?.sellActive ? "Disable" : "Enable"} Auto Position SELL`,
+                      "This controls whether SELL trades are allowed to auto-execute on Binance."
+                    )
+                  }
+                  title="Allow SELL orders to auto-execute on Binance"
+                />
+                </div>
+                <span className="text-[12px] font-medium text-rose-200/80 leading-snug max-w-[20rem]">
+                  Auto Position lets the bot place BUY or SELL orders on Binance automatically for the enabled side.
+                </span>
               </div>
             </ToolbarSegment>
 
-            <ToolbarSegment label="SuperTrend" tone="orange" grow className="min-w-[12rem]">
-              <SuperTrendPanel data={superTrendData} inline />
+            <ToolbarSegment label="Manage Position" tone="purple" className="min-w-[22rem]">
+              <div className="flex flex-col gap-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <FlagToggle
+                    label="Buy"
+                    variant="buy"
+                    on={!!manageAutoPositionSides?.buyActive}
+                    disabled={manageAutoPositionSides == null}
+                    onClick={() =>
+                      openToolbarPasswordPrompt(
+                        toggleManagePositionBuy,
+                        "Update Manage Position BUY Scope",
+                        "Choose whether the future manage-position scope should include BUY trades."
+                      )
+                    }
+                    title="Scope: BUY side"
+                  />
+                  <FlagToggle
+                    label="Sell"
+                    variant="sell"
+                    on={!!manageAutoPositionSides?.sellActive}
+                    disabled={manageAutoPositionSides == null}
+                    onClick={() =>
+                      openToolbarPasswordPrompt(
+                        toggleManagePositionSell,
+                        "Update Manage Position SELL Scope",
+                        "Choose whether the future manage-position scope should include SELL trades."
+                      )
+                    }
+                    title="Scope: SELL side"
+                  />
+                  <FlagToggle
+                    label="Manage"
+                    variant="buy"
+                    on={!!manageAutoPosition}
+                    disabled={manageAutoPositionSides == null}
+                    onClick={() =>
+                      openToolbarPasswordPrompt(
+                        toggleManagePositionEnabled,
+                        `${manageAutoPosition ? "Disable" : "Enable"} Manage Position`,
+                        "This only saves the manage-position flag in the database right now."
+                      )
+                    }
+                    title="Turn manage auto position on or off"
+                  />
+                </div>
+                <span className="text-[12px] font-medium text-red-400 leading-snug max-w-[20rem]">
+                  Currently this is not working. The bot does not use this switch yet.
+                </span>
+              </div>
             </ToolbarSegment>
 
-            <ToolbarSegment label="Assigned new" tone="amber">
+            <ToolbarSegment
+              label="EMA Trend"
+              labelExtra={<EmaUpdatedAgo emaTrends={emaTrends} />}
+              tone="violet"
+              grow
+              className="min-w-[20rem] overflow-hidden"
+            >
+              {emaTrends ? (
+                <EmaTrendGrid emaTrends={emaTrends} compact />
+              ) : (
+                <span className="text-xs text-slate-500">Loading EMA trend…</span>
+              )}
+            </ToolbarSegment>
+
+            <ToolbarSegment label="Assigned new" tone="amber" className="min-w-[6rem] shrink-0">
               <button
                 type="button"
                 className="flex items-center gap-3 w-full justify-center rounded-md border border-amber-500/50 bg-amber-950/50 px-3 py-1.5 hover:bg-amber-900/40 transition-colors"
@@ -2984,12 +3024,6 @@ useEffect(() => {
             </ToolbarSegment>
           </div>
         </div>
-
-        {/* EMA Trend */}
-        <div className="w-full mb-5 rounded-xl border-2 border-violet-500/70 bg-gradient-to-br from-violet-950/50 via-slate-950/95 to-indigo-950/40 p-4 sm:p-5 shadow-[0_0_20px_rgba(139,92,246,0.12)]">
-          <EmaTrendGrid emaTrends={emaTrends} className="w-full" />
-        </div>
-
 
                   {/* ✅ Dashboard Cards */}
                   {metrics && (
@@ -3067,6 +3101,7 @@ useEffect(() => {
                               logData={logData}
                               activeSubReport={activeSubReport}
                               setActiveSubReport={setActiveSubReport}
+                              binanceRefreshNonce={binanceRefreshNonce}
                             />
                           </div>
                         );

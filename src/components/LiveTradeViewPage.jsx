@@ -664,11 +664,14 @@ const LiveTradeViewPage = () => {
     if (fromUid) return fromUid;
     return getRobustSymbol(uid) || '';
   }, [trades, uid]);
-  const SIGNAL_INTERVAL_MS = 5 * 60 * 1000;
   const [signalsData, setSignalsData] = useState(null);
+  const [signalsLoading, setSignalsLoading] = useState(true);
+  const [signalsRefreshKey, setSignalsRefreshKey] = useState(1);
   useEffect(() => {
-    if (!signalSymbol) return;
+    if (!signalSymbol || signalsRefreshKey === 0) return;
+    let cancelled = false;
     const callCalculateSignals = async () => {
+      setSignalsLoading(true);
       try {
         const res = await fetchPythonApi('/api/calculate-signals', {
           method: 'POST',
@@ -676,19 +679,23 @@ const LiveTradeViewPage = () => {
           body: JSON.stringify({ symbol: signalSymbol, candle: 'regular' }),
         });
         const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
         if (!res.ok) {
           console.warn('[LiveTradeViewPage] CalculateSignals:', data?.message || res.statusText);
           return;
         }
         if (data?.ok && data?.intervals) setSignalsData(data);
       } catch (e) {
-        console.warn('[LiveTradeViewPage] CalculateSignals:', e?.message || e);
+        if (!cancelled) console.warn('[LiveTradeViewPage] CalculateSignals:', e?.message || e);
+      } finally {
+        if (!cancelled) setSignalsLoading(false);
       }
     };
     callCalculateSignals();
-    const id = setInterval(callCalculateSignals, SIGNAL_INTERVAL_MS);
-    return () => clearInterval(id);
-  }, [signalSymbol]);
+    return () => {
+      cancelled = true;
+    };
+  }, [signalSymbol, signalsRefreshKey]);
 
   // Bot event log data with pagination
   const [logs, setLogs] = useState([]);
@@ -2807,32 +2814,66 @@ const LiveTradeViewPage = () => {
         </button>
         {upperPanelExpanded && (
         <>
-      {/* Signals (5m, 15m, 1h, 4h) — inside upper panel, own collapse */}
-      {signalsData?.ok && signalsData?.intervals && (
-        <div style={{ marginTop: 12, border: darkMode ? '1px solid #334155' : '1px solid #e2e8f0', borderRadius: 8, background: darkMode ? '#1e293b' : '#f1f5f9', overflow: 'hidden' }}>
-          <button
-            type="button"
-            onClick={toggleSignalsPanel}
+      {/* Signals (5m, 15m, 1h, 4h) — click Calculate Signals to fetch from Binance */}
+      <div style={{ marginTop: 12, border: darkMode ? '1px solid #334155' : '1px solid #e2e8f0', borderRadius: 8, background: darkMode ? '#1e293b' : '#f1f5f9', overflow: 'hidden' }}>
+          <div
             style={{
               width: '100%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'space-between',
+              gap: 8,
               padding: '8px 12px',
-              border: 'none',
               background: darkMode ? '#334155' : '#e2e8f0',
               color: darkMode ? '#e2e8f0' : '#222',
               fontSize: 13,
               fontWeight: 600,
-              cursor: 'pointer',
-              textAlign: 'left',
             }}
           >
-            <span>Signals (5m, 15m, 1h, 4h)</span>
-            <span>{signalsPanelExpanded ? '▼ Collapse' : '▶ Expand'}</span>
-          </button>
+            <button
+              type="button"
+              onClick={toggleSignalsPanel}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                color: 'inherit',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: 'pointer',
+                textAlign: 'left',
+                flex: 1,
+              }}
+            >
+              <span>Signals (5m, 15m, 1h, 4h)</span>
+              <span style={{ marginLeft: 8 }}>{signalsPanelExpanded ? '▼ Collapse' : '▶ Expand'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSignalsRefreshKey((k) => k + 1)}
+              disabled={signalsLoading || !signalSymbol}
+              title="Fetch klines from Binance and calculate signals. Does not run automatically."
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: 'none',
+                background: '#d97706',
+                color: '#fff',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: signalsLoading ? 'not-allowed' : 'pointer',
+                opacity: signalsLoading ? 0.6 : 1,
+              }}
+            >
+              {signalsLoading ? 'Signals…' : 'Calculate Signals'}
+            </button>
+          </div>
           {signalsPanelExpanded && (
           <div style={{ maxHeight: '32vh', overflowY: 'auto', padding: 12 }}>
+            {!signalsData?.ok || !signalsData?.intervals ? (
+              <div style={{ padding: 12, fontSize: 12, opacity: 0.8 }}>
+                {signalsLoading ? 'Loading signals from Binance…' : 'Click Calculate Signals to load from Binance'}
+              </div>
+            ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, padding: 12, background: darkMode ? '#0f172a' : '#fff', borderRadius: 6, border: darkMode ? '1px solid #475569' : '1px solid #e2e8f0' }}>
               {['5m', '15m', '1h', '4h'].map((interval) => {
                 const iv = signalsData.intervals[interval];
@@ -2866,10 +2907,10 @@ const LiveTradeViewPage = () => {
                 );
               })}
             </div>
+            )}
           </div>
           )}
         </div>
-      )}
       <LiveTradeListViewComponent
         uid={uid}
         interval={interval}

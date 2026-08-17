@@ -345,7 +345,7 @@ async function requireAuth(req, res, next) {
 
 // Public paths: no auth (so GitHub Pages can show data). Add signal paths when ALLOW_PUBLIC_READ_SIGNALS.
 const PUBLIC_API_PATHS = ["/api/health", "/api/server-info", "/api/tunnel-url", "/api/alert-rule-books"];
-const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/calculate-signals"];
+const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/auto-execute", "/api/manage-auto-position", "/api/calculate-signals"];
 const ALLOW_PUBLIC_READ_SIGNALS = String(process.env.ALLOW_PUBLIC_READ_SIGNALS || "").toLowerCase() === "true";
 const PUBLIC_READ_SIGNAL_PATHS = ["/api/pairstatus", "/api/active-loss", "/api/open-position", "/api/calculate-signals"];
 
@@ -1331,6 +1331,213 @@ app.get("/api/active-loss", async (req, res) => {
   }
 });
 
+// ✅ API: Auto Execute status (LiveAutoActive table) — buy_active, sell_active
+async function ensureLiveAutoActiveColumns(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS liveautoactive (
+      id INT PRIMARY KEY DEFAULT 1,
+      is_active BOOLEAN NOT NULL DEFAULT FALSE,
+      buy_active BOOLEAN NOT NULL DEFAULT TRUE,
+      sell_active BOOLEAN NOT NULL DEFAULT TRUE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`ALTER TABLE liveautoactive ADD COLUMN IF NOT EXISTS buy_active BOOLEAN NOT NULL DEFAULT TRUE;`).catch(() => {});
+  await pool.query(`ALTER TABLE liveautoactive ADD COLUMN IF NOT EXISTS sell_active BOOLEAN NOT NULL DEFAULT TRUE;`).catch(() => {});
+}
+
+app.get("/api/auto-execute", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.json({ buyActive: true, sellActive: true });
+    }
+    await ensureLiveAutoActiveColumns(pool);
+    let result = await pool.query(
+      "SELECT buy_active, sell_active FROM liveautoactive WHERE id = 1 LIMIT 1;"
+    ).catch(() => ({ rows: [] }));
+    if (result.rows && result.rows.length > 0) {
+      const row = result.rows[0];
+      const buyActive = row.buy_active !== undefined ? !!row.buy_active : true;
+      const sellActive = row.sell_active !== undefined ? !!row.sell_active : true;
+      return res.json({ buyActive, sellActive });
+    }
+    result = await pool.query(
+      "SELECT is_active FROM liveautoactive WHERE id = 1 LIMIT 1;"
+    ).catch(() => ({ rows: [] }));
+    if (result.rows && result.rows.length > 0) {
+      const active = !!result.rows[0].is_active;
+      return res.json({ buyActive: active, sellActive: active });
+    }
+    await pool.query(
+      "INSERT INTO liveautoactive (id, is_active, buy_active, sell_active) VALUES (1, TRUE, TRUE, TRUE) ON CONFLICT (id) DO NOTHING;"
+    ).catch(() => {});
+    const insertSel = await pool.query(
+      "SELECT buy_active, sell_active FROM liveautoactive WHERE id = 1 LIMIT 1;"
+    ).catch(() => ({ rows: [{ buy_active: true, sell_active: true }] }));
+    const row = insertSel.rows && insertSel.rows[0] ? insertSel.rows[0] : { buy_active: true, sell_active: true };
+    res.json({
+      buyActive: row.buy_active !== undefined ? !!row.buy_active : true,
+      sellActive: row.sell_active !== undefined ? !!row.sell_active : true,
+    });
+  } catch (error) {
+    console.error("❌ Query Error (/api/auto-execute):", error.message);
+    res.status(500).json({ error: error.message || "Failed to fetch auto execute status" });
+  }
+});
+
+app.post("/api/auto-execute/set", async (req, res) => {
+  if (!(await requireActionPassword(req, res))) return;
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.status(503).json({ ok: false, message: "Database not connected" });
+    }
+    const buyActive = req.body && req.body.buyActive !== undefined ? !!req.body.buyActive : true;
+    const sellActive = req.body && req.body.sellActive !== undefined ? !!req.body.sellActive : true;
+    await ensureLiveAutoActiveColumns(pool);
+    await pool.query(`
+      INSERT INTO liveautoactive (id, is_active, buy_active, sell_active, updated_at)
+      VALUES (1, $1, $2, $3, NOW())
+      ON CONFLICT (id) DO UPDATE SET is_active = $1, buy_active = $2, sell_active = $3, updated_at = NOW();
+    `, [buyActive || sellActive, buyActive, sellActive]);
+    res.json({ ok: true, buyActive, sellActive });
+  } catch (error) {
+    console.error("❌ Query Error (/api/auto-execute/set):", error.message);
+    res.status(500).json({ ok: false, message: error.message || "Failed to set auto execute" });
+  }
+});
+
+// ✅ Manage Auto Position — table + GET / toggle
+const MANAGE_AUTO_POSITION_TABLE = "manage_auto_position";
+
+async function ensureManageAutoPositionTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ${MANAGE_AUTO_POSITION_TABLE} (
+      id INT PRIMARY KEY DEFAULT 1,
+      is_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`
+    ALTER TABLE ${MANAGE_AUTO_POSITION_TABLE}
+    ADD COLUMN IF NOT EXISTS side TEXT DEFAULT 'BOTH';
+  `).catch(() => {});
+}
+
+function manageAutoPositionSideFromFlags(buyActive, sellActive) {
+  const b = !!buyActive;
+  const s = !!sellActive;
+  if (b && !s) return "BUY";
+  if (!b && s) return "SELL";
+  if (b && s) return "BOTH";
+  return "NONE";
+}
+
+function normalizeManageAutoPositionSide(raw) {
+  const u = (raw == null ? "" : String(raw)).trim().toUpperCase();
+  if (u === "BUY" || u === "SELL" || u === "BOTH" || u === "NONE") return u;
+  return "BOTH";
+}
+
+app.get("/api/manage-auto-position", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.json({ enabled: false, side: "BOTH" });
+    }
+    await ensureManageAutoPositionTable(pool);
+    const result = await pool.query(
+      `SELECT is_enabled, side FROM ${MANAGE_AUTO_POSITION_TABLE} WHERE id = 1 LIMIT 1;`
+    ).catch(() => ({ rows: [] }));
+    if (result.rows && result.rows.length > 0) {
+      const enabled = !!result.rows[0].is_enabled;
+      const side = normalizeManageAutoPositionSide(result.rows[0].side);
+      return res.json({ enabled, side });
+    }
+    await pool.query(
+      `INSERT INTO ${MANAGE_AUTO_POSITION_TABLE} (id, is_enabled, side) VALUES (1, FALSE, 'BOTH') ON CONFLICT (id) DO NOTHING;`
+    ).catch(() => {});
+    res.json({ enabled: false, side: "BOTH" });
+  } catch (error) {
+    console.error("❌ Query Error (/api/manage-auto-position):", error.message);
+    res.status(500).json({ enabled: false, side: "BOTH" });
+  }
+});
+
+app.post("/api/manage-auto-position/toggle", async (req, res) => {
+  if (!(await requireActionPassword(req, res))) return;
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.status(503).json({ ok: false, message: "Database not connected" });
+    }
+    await ensureManageAutoPositionTable(pool);
+    const body = req.body || {};
+    const hasSideFlags =
+      typeof body.buyActive === "boolean" && typeof body.sellActive === "boolean";
+    const sideFromBody = hasSideFlags
+      ? manageAutoPositionSideFromFlags(body.buyActive, body.sellActive)
+      : null;
+
+    const current = await pool.query(
+      `SELECT is_enabled, side FROM ${MANAGE_AUTO_POSITION_TABLE} WHERE id = 1 LIMIT 1;`
+    ).catch(() => ({ rows: [] }));
+    const nowEnabled = current.rows && current.rows.length > 0 ? !current.rows[0].is_enabled : true;
+
+    if (sideFromBody != null) {
+      await pool.query(
+        `INSERT INTO ${MANAGE_AUTO_POSITION_TABLE} (id, is_enabled, side, updated_at) VALUES (1, $1, $2, NOW())
+         ON CONFLICT (id) DO UPDATE SET is_enabled = $1, side = $2, updated_at = NOW();`,
+        [nowEnabled, sideFromBody]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO ${MANAGE_AUTO_POSITION_TABLE} (id, is_enabled, updated_at) VALUES (1, $1, NOW())
+         ON CONFLICT (id) DO UPDATE SET is_enabled = $1, updated_at = NOW();`,
+        [nowEnabled]
+      );
+    }
+
+    const sideRow = await pool.query(
+      `SELECT side FROM ${MANAGE_AUTO_POSITION_TABLE} WHERE id = 1 LIMIT 1;`
+    ).catch(() => ({ rows: [] }));
+    const side =
+      sideRow.rows && sideRow.rows.length > 0
+        ? normalizeManageAutoPositionSide(sideRow.rows[0].side)
+        : "BOTH";
+    res.json({ ok: true, enabled: nowEnabled, side });
+  } catch (error) {
+    console.error("❌ Query Error (/api/manage-auto-position/toggle):", error.message);
+    res.status(500).json({ ok: false, message: error.message || "Failed to toggle" });
+  }
+});
+
+app.post("/api/manage-auto-position/set-side", async (req, res) => {
+  if (!(await requireActionPassword(req, res))) return;
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      return res.status(503).json({ ok: false, message: "Database not connected" });
+    }
+    await ensureManageAutoPositionTable(pool);
+    const body = req.body || {};
+    const buyActive = !!body.buyActive;
+    const sellActive = !!body.sellActive;
+    const side = manageAutoPositionSideFromFlags(buyActive, sellActive);
+    await pool.query(
+      `INSERT INTO ${MANAGE_AUTO_POSITION_TABLE} (id, is_enabled, side, updated_at)
+       VALUES (1, FALSE, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET side = $1, updated_at = NOW();`,
+      [side]
+    );
+    res.json({ ok: true, side, buyActive, sellActive });
+  } catch (error) {
+    console.error("❌ Query Error (/api/manage-auto-position/set-side):", error.message);
+    res.status(500).json({ ok: false, message: error.message || "Failed to set side" });
+  }
+});
+
 // ✅ Binance Proxy Endpoint (local/cloud server)
 const LOCAL_PROXY = `http://localhost:${process.env.PORT || 10000}/api/klines`;
 
@@ -1383,6 +1590,7 @@ async function proxyPostToPython(req, res, timeoutMs = 60000) {
 app.get("/api/open-position", proxyGetToPython);
 app.get("/api/open-orders", proxyGetToPython);
 app.get("/api/futures-balance", proxyGetToPython);
+app.get("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
 app.post("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
 
 // ✅ Proxy to Python CalculateSignals API (run python/api_signals.py; set PYTHON_SIGNALS_URL=http://localhost:5001)
