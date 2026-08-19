@@ -13,11 +13,12 @@ const BinanceIncomeHistoryPage = () => {
   });
   const [selectedPair, setSelectedPair] = useState(null);
 
-  const loadHistory = async (options = { showSyncInfo: false }) => {
+  const loadHistory = async (options = { showSyncInfo: false, sync: false }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch("/api/income-history");
+      const url = options.sync ? "/api/income-history?sync=1" : "/api/income-history";
+      const res = await apiFetch(url);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.ok === false) {
         throw new Error(data.message || "Failed to load income history");
@@ -42,7 +43,7 @@ const BinanceIncomeHistoryPage = () => {
   };
 
   useEffect(() => {
-    loadHistory({ showSyncInfo: false });
+    loadHistory({ showSyncInfo: false, sync: false });
   }, []);
 
   const symbols = useMemo(() => {
@@ -151,7 +152,7 @@ const BinanceIncomeHistoryPage = () => {
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => loadHistory({ showSyncInfo: true })}
+              onClick={() => loadHistory({ showSyncInfo: true, sync: true })}
               className="px-3 py-2 rounded-lg text-sm font-medium bg-teal-600 text-white hover:bg-teal-700"
               disabled={loading}
             >

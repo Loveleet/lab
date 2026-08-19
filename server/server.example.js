@@ -345,7 +345,7 @@ async function requireAuth(req, res, next) {
 
 // Public paths: no auth (so GitHub Pages can show data). Add signal paths when ALLOW_PUBLIC_READ_SIGNALS.
 const PUBLIC_API_PATHS = ["/api/health", "/api/server-info", "/api/tunnel-url", "/api/alert-rule-books"];
-const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/auto-execute", "/api/manage-auto-position", "/api/calculate-signals"];
+const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/auto-execute", "/api/manage-auto-position", "/api/calculate-signals", "/api/income-history"];
 const ALLOW_PUBLIC_READ_SIGNALS = String(process.env.ALLOW_PUBLIC_READ_SIGNALS || "").toLowerCase() === "true";
 const PUBLIC_READ_SIGNAL_PATHS = ["/api/pairstatus", "/api/active-loss", "/api/open-position", "/api/calculate-signals"];
 
@@ -1556,13 +1556,13 @@ function getPythonSignalsUrl() {
   return (process.env.PYTHON_SIGNALS_URL || "http://localhost:5001").replace(/\/$/, "");
 }
 
-async function proxyGetToPython(req, res) {
+async function proxyGetToPython(req, res, timeoutMs) {
   const pythonUrl = getPythonSignalsUrl();
   try {
     const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
     const url = `${pythonUrl}${req.path}${qs}`;
-    const timeoutMs = Number(process.env.PYTHON_PROXY_TIMEOUT_MS) || 60000;
-    const { data, status } = await axios.get(url, { timeout: timeoutMs, validateStatus: () => true });
+    const ms = timeoutMs || Number(process.env.PYTHON_PROXY_TIMEOUT_MS) || 60000;
+    const { data, status } = await axios.get(url, { timeout: ms, validateStatus: () => true });
     res.status(status || 200).json(data);
   } catch (err) {
     console.error(`[${req.path}] Python proxy error:`, err.message);
@@ -1586,10 +1586,55 @@ async function proxyPostToPython(req, res, timeoutMs = 60000) {
   }
 }
 
+/** Login password or lab_settings.action_password. Returns false if response already sent. */
+async function requireActionPassword(req, res) {
+  const pw = (req.body?.password || "").toString().trim();
+  if (!pw) {
+    res.status(400).json({ ok: false, message: "password required" });
+    return false;
+  }
+  try {
+    const pool = await poolPromise;
+    if (!pool) {
+      res.status(503).json({ ok: false, message: "Database not connected" });
+      return false;
+    }
+    try {
+      const setting = await pool.query(`SELECT value FROM lab_settings WHERE key = 'action_password' LIMIT 1`);
+      const actionPw = setting?.rows?.[0]?.value;
+      if (actionPw != null && String(actionPw).trim() !== "" && pw === String(actionPw).trim()) return true;
+    } catch (_) { /* table may not exist */ }
+    if (req.user?.email) {
+      const userRes = await pool.query(
+        `SELECT id FROM users
+         WHERE email = $1 AND is_active = TRUE AND password_hash = crypt($2, password_hash)`,
+        [req.user.email, pw]
+      );
+      if (userRes.rowCount > 0) return true;
+    }
+    res.status(401).json({ ok: false, message: "Invalid password" });
+    return false;
+  } catch (e) {
+    log(`requireActionPassword error: ${e.message}`, "ERROR");
+    res.status(500).json({ ok: false, message: "Password check failed" });
+    return false;
+  }
+}
+
+async function proxyActionToPython(req, res, timeoutMs = 120000) {
+  if (!(await requireActionPassword(req, res))) return;
+  return proxyPostToPython(req, res, timeoutMs);
+}
+
 // Python-backed read endpoints (Information + Binance Data sections)
 app.get("/api/open-position", proxyGetToPython);
 app.get("/api/open-orders", proxyGetToPython);
 app.get("/api/futures-balance", proxyGetToPython);
+app.get("/api/income-history", (req, res) => {
+  const sync = String(req.query.sync || "").toLowerCase();
+  const ms = ["1", "true", "yes"].includes(sync) ? 120000 : 30000;
+  return proxyGetToPython(req, res, ms);
+});
 app.get("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
 app.post("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
 
@@ -1629,6 +1674,20 @@ app.post("/api/trade-management-rule", async (req, res) => {
     res.status(502).json({ ok: false, message: err.message || "Python signals service unavailable" });
   }
 });
+
+// Trading actions: Node checks password, then proxies to Python api_signals.py
+app.post("/api/execute", (req, res) => proxyActionToPython(req, res, 120000));
+app.post("/api/hedge", (req, res) => proxyActionToPython(req, res, 120000));
+app.post("/api/partial-close", (req, res) => proxyActionToPython(req, res, 120000));
+app.post("/api/stop-price", (req, res) => proxyActionToPython(req, res, 120000));
+app.post("/api/end-trade", (req, res) => proxyActionToPython(req, res, 120000));
+app.post("/api/add-investment", (req, res) => proxyActionToPython(req, res, 120000));
+app.post("/api/close-order", (req, res) => proxyActionToPython(req, res, 60000));
+app.get("/api/close-order", proxyGetToPython);
+app.get("/api/quantity-preview", proxyGetToPython);
+app.post("/api/quantity-preview", (req, res) => proxyPostToPython(req, res, 20000));
+app.get("/api/set-all-stop-preview", proxyGetToPython);
+app.post("/api/set-all-stop-one", (req, res) => proxyActionToPython(req, res, 120000));
 
 // ✅ API: Fetch Signal Processing Logs with Pagination and Filtering
 app.get("/api/SignalProcessingLogs", async (req, res) => {
