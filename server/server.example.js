@@ -1561,7 +1561,10 @@ async function proxyGetToPython(req, res, timeoutMs) {
   try {
     const qs = req.originalUrl.includes("?") ? req.originalUrl.slice(req.originalUrl.indexOf("?")) : "";
     const url = `${pythonUrl}${req.path}${qs}`;
-    const ms = timeoutMs || Number(process.env.PYTHON_PROXY_TIMEOUT_MS) || 60000;
+    const ms =
+      typeof timeoutMs === "number" && timeoutMs > 0
+        ? timeoutMs
+        : Number(process.env.PYTHON_PROXY_TIMEOUT_MS) || 60000;
     const { data, status } = await axios.get(url, { timeout: ms, validateStatus: () => true });
     res.status(status || 200).json(data);
   } catch (err) {
