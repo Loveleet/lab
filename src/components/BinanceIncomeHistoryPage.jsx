@@ -12,6 +12,7 @@ const BinanceIncomeHistoryPage = () => {
     minPL: "",
     dateFrom: "",
     dateTo: "",
+    profitFilter: "all",
   });
   const [selectedPair, setSelectedPair] = useState(null);
 
@@ -149,9 +150,14 @@ const BinanceIncomeHistoryPage = () => {
       if (!Number.isNaN(minPLNum) && s.total <= minPLNum) {
         return false;
       }
+      const profit = s.profit || 0;
+      if (filters.profitFilter === "positive" && !(profit > 0)) return false;
+      if (filters.profitFilter === "negative" && !(profit < 0)) return false;
+      if (filters.profitFilter === "zero" && profit !== 0) return false;
+      if (filters.profitFilter === "has_profit" && profit === 0) return false;
       return true;
     });
-  }, [pairSummaries, filters.symbol, filters.minPL]);
+  }, [pairSummaries, filters.symbol, filters.minPL, filters.profitFilter]);
 
   const summaryTotals = useMemo(() => {
     return filteredSummaries.reduce(
@@ -217,6 +223,7 @@ const BinanceIncomeHistoryPage = () => {
                   minPL: "",
                   dateFrom: "",
                   dateTo: "",
+                  profitFilter: "all",
                 })
               }
               className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-700"
@@ -239,7 +246,7 @@ const BinanceIncomeHistoryPage = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 mb-4">
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
               Pair
@@ -283,6 +290,22 @@ const BinanceIncomeHistoryPage = () => {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
+              Profit
+            </label>
+            <select
+              className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-sm text-gray-900 dark:text-gray-100"
+              value={filters.profitFilter}
+              onChange={(e) => handleFilterChange("profitFilter", e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="has_profit">Has profit (≠ 0)</option>
+              <option value="positive">Profit &gt; 0</option>
+              <option value="negative">Profit &lt; 0</option>
+              <option value="zero">Profit = 0</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
               Min P/L (USDT)
             </label>
             <input
@@ -294,7 +317,7 @@ const BinanceIncomeHistoryPage = () => {
               onChange={(e) => handleFilterChange("minPL", e.target.value)}
             />
           </div>
-          <div className="flex items-end sm:col-span-2 lg:col-span-2">
+          <div className="flex items-end sm:col-span-2">
             <div className="text-xs text-gray-500 dark:text-gray-400">
               Rows:{" "}
               <span className="font-semibold">
