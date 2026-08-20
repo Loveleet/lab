@@ -10,6 +10,8 @@ const BinanceIncomeHistoryPage = () => {
   const [filters, setFilters] = useState({
     symbol: "",
     minPL: "",
+    dateFrom: "",
+    dateTo: "",
   });
   const [selectedPair, setSelectedPair] = useState(null);
 
@@ -54,9 +56,36 @@ const BinanceIncomeHistoryPage = () => {
     return Array.from(set).sort();
   }, [history]);
 
+  const dateRangeBounds = useMemo(() => {
+    let fromMs = null;
+    let toMs = null;
+    if (filters.dateFrom) {
+      const d = new Date(`${filters.dateFrom}T00:00:00`);
+      if (!Number.isNaN(d.getTime())) fromMs = d.getTime();
+    }
+    if (filters.dateTo) {
+      const d = new Date(`${filters.dateTo}T23:59:59.999`);
+      if (!Number.isNaN(d.getTime())) toMs = d.getTime();
+    }
+    return { fromMs, toMs };
+  }, [filters.dateFrom, filters.dateTo]);
+
+  const historyInDateRange = useMemo(() => {
+    const { fromMs, toMs } = dateRangeBounds;
+    if (fromMs == null && toMs == null) return history;
+    return history.filter((row) => {
+      if (!row?.time) return false;
+      const t = new Date(row.time).getTime();
+      if (Number.isNaN(t)) return false;
+      if (fromMs != null && t < fromMs) return false;
+      if (toMs != null && t > toMs) return false;
+      return true;
+    });
+  }, [history, dateRangeBounds]);
+
   const pairSummaries = useMemo(() => {
     const bySymbol = new Map();
-    history.forEach((row) => {
+    historyInDateRange.forEach((row) => {
       if (!row) return;
       const symbol = (row.symbol || "").toUpperCase();
       if (!symbol) return;
@@ -100,6 +129,15 @@ const BinanceIncomeHistoryPage = () => {
       return b.lastTime.getTime() - a.lastTime.getTime();
     });
     return out;
+  }, [historyInDateRange]);
+
+  const allPairCount = useMemo(() => {
+    const set = new Set();
+    history.forEach((row) => {
+      const symbol = (row.symbol || "").toUpperCase();
+      if (symbol) set.add(symbol);
+    });
+    return set.size;
   }, [history]);
 
   const filteredSummaries = useMemo(() => {
@@ -113,18 +151,31 @@ const BinanceIncomeHistoryPage = () => {
       }
       return true;
     });
-  }, [pairSummaries, filters]);
+  }, [pairSummaries, filters.symbol, filters.minPL]);
+
+  const summaryTotals = useMemo(() => {
+    return filteredSummaries.reduce(
+      (acc, row) => {
+        acc.count += 1;
+        acc.profit += row.profit || 0;
+        acc.commission += row.commission || 0;
+        acc.total += row.total || 0;
+        return acc;
+      },
+      { count: 0, profit: 0, commission: 0, total: 0 }
+    );
+  }, [filteredSummaries]);
 
   const detailRows = useMemo(() => {
     if (!selectedPair) return [];
-    return history
+    return historyInDateRange
       .filter((row) => (row.symbol || "").toUpperCase() === selectedPair.toUpperCase())
       .sort((a, b) => {
         const ta = a.time ? new Date(a.time).getTime() : 0;
         const tb = b.time ? new Date(b.time).getTime() : 0;
         return tb - ta;
       });
-  }, [history, selectedPair]);
+  }, [historyInDateRange, selectedPair]);
 
   const handleFilterChange = (field, value) => {
     setFilters((prev) => ({
@@ -164,6 +215,8 @@ const BinanceIncomeHistoryPage = () => {
                 setFilters({
                   symbol: "",
                   minPL: "",
+                  dateFrom: "",
+                  dateTo: "",
                 })
               }
               className="px-3 py-2 rounded-lg text-sm font-medium bg-gray-200 dark:bg-gray-800 text-gray-800 dark:text-gray-100 hover:bg-gray-300 dark:hover:bg-gray-700"
@@ -186,7 +239,7 @@ const BinanceIncomeHistoryPage = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
               Pair
@@ -206,6 +259,30 @@ const BinanceIncomeHistoryPage = () => {
           </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
+              From date
+            </label>
+            <input
+              type="date"
+              className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-sm text-gray-900 dark:text-gray-100"
+              value={filters.dateFrom}
+              max={filters.dateTo || undefined}
+              onChange={(e) => handleFilterChange("dateFrom", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
+              To date
+            </label>
+            <input
+              type="date"
+              className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-sm text-gray-900 dark:text-gray-100"
+              value={filters.dateTo}
+              min={filters.dateFrom || undefined}
+              onChange={(e) => handleFilterChange("dateTo", e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
               Min P/L (USDT)
             </label>
             <input
@@ -217,11 +294,11 @@ const BinanceIncomeHistoryPage = () => {
               onChange={(e) => handleFilterChange("minPL", e.target.value)}
             />
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end sm:col-span-2 lg:col-span-2">
             <div className="text-xs text-gray-500 dark:text-gray-400">
               Rows:{" "}
               <span className="font-semibold">
-                {filteredSummaries.length} / {pairSummaries.length}
+                {filteredSummaries.length} / {allPairCount}
               </span>
             </div>
           </div>
@@ -240,23 +317,23 @@ const BinanceIncomeHistoryPage = () => {
 
         {!loading && !error && (
           <>
-            <div className="overflow-auto rounded-lg border border-gray-200 dark:border-gray-800 mb-6">
+            <div className="overflow-auto max-h-[70vh] rounded-lg border border-gray-200 dark:border-gray-800 mb-6">
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-800 text-sm">
                 <thead className="bg-gray-50 dark:bg-[#020617]">
                   <tr>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                    <th className="sticky top-0 z-20 px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
                       Time
                     </th>
-                    <th className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                    <th className="sticky top-0 z-20 px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
                       Pair
                     </th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200">
+                    <th className="sticky top-0 z-20 px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
                       Profit (REALIZED_PNL)
                     </th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200">
+                    <th className="sticky top-0 z-20 px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
                       Commission
                     </th>
-                    <th className="px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200">
+                    <th className="sticky top-0 z-20 px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
                       Total P/L after commission
                     </th>
                   </tr>
@@ -316,6 +393,37 @@ const BinanceIncomeHistoryPage = () => {
                     </tr>
                   )}
                 </tbody>
+                {filteredSummaries.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-gray-100 dark:bg-[#0f172a] border-t-2 border-gray-300 dark:border-gray-600">
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
+                        Total count: {summaryTotals.count}
+                      </td>
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
+                        —
+                      </td>
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-right text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
+                        {summaryTotals.profit.toFixed(4)}
+                      </td>
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-right text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
+                        {summaryTotals.commission.toFixed(4)}
+                      </td>
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-right bg-gray-100 dark:bg-[#0f172a]">
+                        <span
+                          className={
+                            summaryTotals.total > 0
+                              ? "text-emerald-500"
+                              : summaryTotals.total < 0
+                              ? "text-red-500"
+                              : "text-gray-500"
+                          }
+                        >
+                          {summaryTotals.total.toFixed(4)}
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
 
