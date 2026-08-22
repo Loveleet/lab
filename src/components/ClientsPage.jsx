@@ -30,11 +30,20 @@ const ClientsPage = () => {
     setError(null);
     try {
       const res = await apiFetch("/api/clients");
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to load clients");
+      const text = await res.text();
+      let data = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        throw new Error(data.error || data.message || text || `Request failed (${res.status})`);
+      }
       setClients(Array.isArray(data.clients) ? data.clients : []);
     } catch (e) {
-      setError(e.message || "Failed to load clients");
+      const msg = e.message || "Failed to load clients";
+      setError(msg === "Failed to fetch" ? "Cannot reach API server. Is the Node server running?" : msg);
       setClients([]);
     } finally {
       setLoading(false);
@@ -91,12 +100,21 @@ const ClientsPage = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || "Failed to save client");
+      const text = await res.text();
+      let data = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        throw new Error(data.error || data.message || text || `Request failed (${res.status})`);
+      }
       closeModal();
       await loadClients();
     } catch (err) {
-      setFormError(err.message || "Failed to save client");
+      const msg = err.message || "Failed to save client";
+      setFormError(msg === "Failed to fetch" ? "Cannot reach API server. Is the Node server running?" : msg);
     } finally {
       setSaving(false);
     }
