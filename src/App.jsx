@@ -24,6 +24,7 @@ import RefreshControls from './components/RefreshControls';
 import ToolbarSegment from "./components/ToolbarSegment";
 import EmaTrendGrid, { EmaUpdatedAgo } from "./components/EmaTrendGrid";
 import TradeComparePage from "./components/TradeComparePage";
+import ClientsPage from "./components/ClientsPage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
 import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed } from "./tradesCache";
@@ -2483,6 +2484,7 @@ useEffect(() => {
         <Route path="/live-running-trades" element={<LiveRunningTradesPage />} />
         <Route path="/pages/group-view" element={<GroupViewPage />} />
         <Route path="/trades" element={<TradeComparePage />} />
+        <Route path="/clients" element={<ClientsPage />} />
         {/* <Route path="/settings" element={<SettingsPage />} /> */}
         <Route path="/*" element={
           <>

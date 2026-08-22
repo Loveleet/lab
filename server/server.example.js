@@ -1303,6 +1303,163 @@ app.get("/api/pairstatus", async (req, res) => {
   }
 });
 
+// ✅ API: Clients CRUD
+async function ensureClientsTable(pool) {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS clients (
+      id                  SERIAL PRIMARY KEY,
+      first_name          TEXT NOT NULL,
+      last_name           TEXT NOT NULL,
+      phone_number        TEXT,
+      email               TEXT UNIQUE,
+      telegram_id         TEXT,
+      binance_api_key     TEXT,
+      binance_secret_key  TEXT,
+      investment          NUMERIC(18, 2) DEFAULT 0,
+      is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(is_active);`).catch(() => {});
+}
+
+function maskClientRow(row) {
+  if (!row) return row;
+  const out = { ...row };
+  if (out.binance_api_key && out.binance_api_key.length > 8) {
+    out.binance_api_key = out.binance_api_key.slice(0, 4) + "****" + out.binance_api_key.slice(-4);
+  }
+  if (out.binance_secret_key) {
+    out.binance_secret_key = "****" + out.binance_secret_key.slice(-4);
+  }
+  return out;
+}
+
+app.get("/api/clients", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.status(503).json({ error: "Database not connected", clients: [] });
+    await ensureClientsTable(pool);
+    const result = await pool.query(`
+      SELECT id, first_name, last_name, phone_number, email, telegram_id,
+             binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
+      FROM clients
+      ORDER BY created_at DESC
+    `);
+    res.json({ clients: result.rows.map(maskClientRow) });
+  } catch (error) {
+    if (isMissingTable(error)) return res.json({ clients: [] });
+    console.error("❌ Query Error (/api/clients):", error.message);
+    res.status(500).json({ error: error.message || "Failed to fetch clients" });
+  }
+});
+
+app.post("/api/clients", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.status(503).json({ error: "Database not connected" });
+    const {
+      first_name, last_name, phone_number, email, telegram_id,
+      binance_api_key, binance_secret_key, investment,
+    } = req.body || {};
+    if (!first_name?.trim() || !last_name?.trim()) {
+      return res.status(400).json({ error: "First name and last name are required" });
+    }
+    await ensureClientsTable(pool);
+    const result = await pool.query(`
+      INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id,
+                           binance_api_key, binance_secret_key, investment)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id, first_name, last_name, phone_number, email, telegram_id,
+                binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
+    `, [
+      first_name.trim(),
+      last_name.trim(),
+      phone_number?.trim() || null,
+      email?.trim() || null,
+      telegram_id?.trim() || null,
+      binance_api_key?.trim() || null,
+      binance_secret_key?.trim() || null,
+      investment != null && investment !== "" ? Number(investment) : 0,
+    ]);
+    res.status(201).json({ client: maskClientRow(result.rows[0]) });
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "Email already exists" });
+    console.error("❌ Query Error (POST /api/clients):", error.message);
+    res.status(500).json({ error: error.message || "Failed to create client" });
+  }
+});
+
+app.put("/api/clients/:id", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.status(503).json({ error: "Database not connected" });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid client id" });
+    const {
+      first_name, last_name, phone_number, email, telegram_id,
+      binance_api_key, binance_secret_key, investment, is_active,
+    } = req.body || {};
+    if (!first_name?.trim() || !last_name?.trim()) {
+      return res.status(400).json({ error: "First name and last name are required" });
+    }
+    await ensureClientsTable(pool);
+    const secretProvided = binance_secret_key && !String(binance_secret_key).startsWith("****");
+    const result = await pool.query(`
+      UPDATE clients SET
+        first_name = $1,
+        last_name = $2,
+        phone_number = $3,
+        email = $4,
+        telegram_id = $5,
+        binance_api_key = $6,
+        binance_secret_key = CASE WHEN $7 THEN $8 ELSE binance_secret_key END,
+        investment = $9,
+        is_active = COALESCE($10, is_active),
+        updated_at = NOW()
+      WHERE id = $11
+      RETURNING id, first_name, last_name, phone_number, email, telegram_id,
+                binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
+    `, [
+      first_name.trim(),
+      last_name.trim(),
+      phone_number?.trim() || null,
+      email?.trim() || null,
+      telegram_id?.trim() || null,
+      binance_api_key?.trim() || null,
+      secretProvided,
+      secretProvided ? String(binance_secret_key).trim() : null,
+      investment != null && investment !== "" ? Number(investment) : 0,
+      is_active,
+      id,
+    ]);
+    if (!result.rows.length) return res.status(404).json({ error: "Client not found" });
+    res.json({ client: maskClientRow(result.rows[0]) });
+  } catch (error) {
+    if (error.code === "23505") return res.status(409).json({ error: "Email already exists" });
+    console.error("❌ Query Error (PUT /api/clients/:id):", error.message);
+    res.status(500).json({ error: error.message || "Failed to update client" });
+  }
+});
+
+app.delete("/api/clients/:id", async (req, res) => {
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.status(503).json({ error: "Database not connected" });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid client id" });
+    await ensureClientsTable(pool);
+    const result = await pool.query(`DELETE FROM clients WHERE id = $1 RETURNING id`, [id]);
+    if (!result.rows.length) return res.status(404).json({ error: "Client not found" });
+    res.json({ ok: true, id });
+  } catch (error) {
+    console.error("❌ Query Error (DELETE /api/clients/:id):", error.message);
+    res.status(500).json({ error: error.message || "Failed to delete client" });
+  }
+});
+
 // ✅ API: Fetch Active Loss/Condition flags (e.g., BUY/SELL booleans)
 // Expected table: active_loss with columns like buy, sell (bool/int/text) where id=1
 const defaultActiveLoss = { id: 1, buy: false, sell: false, buy_condition: false, sell_condition: false, buyflag: false, sellflag: false };
