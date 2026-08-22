@@ -86,7 +86,7 @@ function EmaCell({ label, trendText, pct, compact = false }) {
   const trend = (trendText || "").toLowerCase();
   const isBull = trend.includes("bull");
   const isBear = trend.includes("bear");
-  const hasPct = pct != null && pct !== "" && !Number.isNaN(val);
+  const hasPct = pct != null && pct !== "" && !Number.isNaN(val) && val > 0;
   const hot = hasPct && val >= 90;
   const empty = !isBull && !isBear && !hasPct;
 

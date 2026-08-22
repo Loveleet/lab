@@ -1281,6 +1281,54 @@ app.get("/api/machines", async (req, res) => {
 });
 
 // ✅ API: Fetch EMA Trend Data from pairstatus
+const EMA_TREND_INTERVALS = ["1m", "5m", "15m", "1h", "4h", "1d"];
+
+function isBullTrendValue(val) {
+  const s = String(val ?? "").trim().toUpperCase();
+  return s.includes("BULL") || s.includes("UP");
+}
+
+function isBearTrendValue(val) {
+  const s = String(val ?? "").trim().toUpperCase();
+  return s.includes("BEAR") || s.includes("DOWN");
+}
+
+function overallEmaNeedsAggregate(row, tf) {
+  const pct = parseFloat(row[`overall_ema_trend_percentage_${tf}`]);
+  const trend = String(row[`overall_ema_trend_${tf}`] ?? "").trim().toUpperCase();
+  return !Number.isFinite(pct) || pct <= 0 || trend === "NEUTRAL" || trend === "";
+}
+
+async function aggregateOverallEmaTrends(pool, timeframes = EMA_TREND_INTERVALS) {
+  const cols = timeframes.map((tf) => `ema_trend_${tf}`).join(", ");
+  const result = await pool.query(`SELECT ${cols} FROM pairstatus`);
+  const out = {};
+  for (const tf of timeframes) {
+    const col = `ema_trend_${tf}`;
+    let bull = 0;
+    let bear = 0;
+    for (const row of result.rows) {
+      const v = row[col];
+      if (isBullTrendValue(v)) bull += 1;
+      else if (isBearTrendValue(v)) bear += 1;
+    }
+    const total = bull + bear;
+    if (total === 0) {
+      out[`overall_ema_trend_${tf}`] = "NEUTRAL";
+      out[`overall_ema_trend_percentage_${tf}`] = 0;
+      continue;
+    }
+    if (bull >= bear) {
+      out[`overall_ema_trend_${tf}`] = "BULLISH";
+      out[`overall_ema_trend_percentage_${tf}`] = (bull / total) * 100;
+    } else {
+      out[`overall_ema_trend_${tf}`] = "BEARISH";
+      out[`overall_ema_trend_percentage_${tf}`] = (bear / total) * 100;
+    }
+  }
+  return out;
+}
+
 app.get("/api/pairstatus", async (req, res) => {
   try {
     const pool = await poolPromise;
@@ -1295,7 +1343,18 @@ app.get("/api/pairstatus", async (req, res) => {
       ORDER BY last_updated DESC
       LIMIT 1
     `);
-    res.json(result.rows[0] || {});
+    const row = result.rows[0] || {};
+    const missingLongTf = ["1h", "4h", "1d"].some((tf) => overallEmaNeedsAggregate(row, tf));
+    if (missingLongTf) {
+      const agg = await aggregateOverallEmaTrends(pool, ["1h", "4h", "1d"]);
+      for (const tf of ["1h", "4h", "1d"]) {
+        if (overallEmaNeedsAggregate(row, tf)) {
+          row[`overall_ema_trend_${tf}`] = agg[`overall_ema_trend_${tf}`];
+          row[`overall_ema_trend_percentage_${tf}`] = agg[`overall_ema_trend_percentage_${tf}`];
+        }
+      }
+    }
+    res.json(row);
   } catch (error) {
     if (isMissingTable(error)) return res.json({});
     console.error("❌ Query Error (/api/pairstatus):", error.message);
