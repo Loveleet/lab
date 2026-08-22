@@ -23,6 +23,15 @@ function isNumericValue(value) {
   return !Number.isNaN(parseFloat(value));
 }
 
+function keyMatchesInterval(normalizedKey, alias) {
+  const a = String(alias).toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!a) return false;
+  return (
+    normalizedKey.endsWith(`overallematrend${a}`) ||
+    normalizedKey.endsWith(`overallematrendpercentage${a}`)
+  );
+}
+
 /** DB sometimes stores trend in overall_ema_trend_percentage_* and % in overall_ema_trend_*. */
 export function resolveEmaInterval(data, aliases) {
   if (!data || typeof data !== "object") return { trend: undefined, pct: undefined };
@@ -33,7 +42,7 @@ export function resolveEmaInterval(data, aliases) {
     if (v == null || String(v).trim() === "") continue;
     const nk = normalizeKey(k);
     if (!nk.includes("overallematrend")) continue;
-    const aliasHit = aliases.some((a) => nk.includes(String(a).toLowerCase()));
+    const aliasHit = aliases.some((a) => keyMatchesInterval(nk, a));
     if (!aliasHit) continue;
     if (nk.includes("percent")) rawB = v;
     else rawA = v;
