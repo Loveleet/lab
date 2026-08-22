@@ -12,6 +12,7 @@ const EMPTY_FORM = {
   binance_api_key: "",
   binance_secret_key: "",
   investment: "",
+  is_active: false,
 };
 
 const ClientsPage = () => {
@@ -72,6 +73,7 @@ const ClientsPage = () => {
       binance_api_key: client.binance_api_key || "",
       binance_secret_key: client.binance_secret_key || "",
       investment: client.investment != null ? String(client.investment) : "",
+      is_active: !!client.is_active,
     });
     setFormError(null);
     setModalOpen(true);
@@ -138,6 +140,18 @@ const ClientsPage = () => {
     return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
   };
 
+  const formatStatus = (active) => (
+    <span
+      className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
+        active
+          ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200"
+          : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
+      }`}
+    >
+      {active ? "Active" : "Deactive"}
+    </span>
+  );
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f6fa] dark:bg-black text-gray-900 dark:text-gray-100">
       <Sidebar isOpen={isSidebarOpen} toggleSidebar={() => setIsSidebarOpen((o) => !o)} />
@@ -182,6 +196,7 @@ const ClientsPage = () => {
               <table className="w-full text-sm text-left">
                 <thead className="sticky top-0 bg-gray-100 dark:bg-gray-800 text-xs uppercase text-gray-600 dark:text-gray-300">
                   <tr>
+                    <th className="px-4 py-3 w-12">#</th>
                     <th className="px-4 py-3">Name</th>
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Email</th>
@@ -189,15 +204,17 @@ const ClientsPage = () => {
                     <th className="px-4 py-3">Binance API Key</th>
                     <th className="px-4 py-3">Secret Key</th>
                     <th className="px-4 py-3 text-right">Investment</th>
+                    <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {clients.map((client) => (
+                  {clients.map((client, index) => (
                     <tr
                       key={client.id}
                       className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60"
                     >
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{index + 1}</td>
                       <td className="px-4 py-3 font-medium whitespace-nowrap">
                         {client.first_name} {client.last_name}
                       </td>
@@ -207,6 +224,7 @@ const ClientsPage = () => {
                       <td className="px-4 py-3 font-mono text-xs">{client.binance_api_key || "—"}</td>
                       <td className="px-4 py-3 font-mono text-xs">{client.binance_secret_key || "—"}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">{formatInvestment(client.investment)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatStatus(client.is_active)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button
                           type="button"
@@ -326,6 +344,25 @@ const ClientsPage = () => {
                   className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
                 />
               </label>
+              {editingId ? (
+                <label className="block">
+                  <span className="text-sm font-medium">Status</span>
+                  <select
+                    value={form.is_active ? "active" : "deactive"}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, is_active: e.target.value === "active" }))
+                    }
+                    className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                  >
+                    <option value="active">Active</option>
+                    <option value="deactive">Deactive</option>
+                  </select>
+                </label>
+              ) : (
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  New clients are created as <strong>Deactive</strong>.
+                </p>
+              )}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"

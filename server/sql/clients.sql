@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS clients (
   binance_api_key     TEXT,
   binance_secret_key  TEXT,
   investment          NUMERIC(18, 2) DEFAULT 0,
-  is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+  is_active           BOOLEAN NOT NULL DEFAULT FALSE,
   created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

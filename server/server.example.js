@@ -1316,7 +1316,7 @@ async function ensureClientsTable(pool) {
       binance_api_key     TEXT,
       binance_secret_key  TEXT,
       investment          NUMERIC(18, 2) DEFAULT 0,
-      is_active           BOOLEAN NOT NULL DEFAULT TRUE,
+      is_active           BOOLEAN NOT NULL DEFAULT FALSE,
       created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
@@ -1362,16 +1362,17 @@ app.post("/api/clients", async (req, res) => {
     if (!pool) return res.status(503).json({ error: "Database not connected" });
     const {
       first_name, last_name, phone_number, email, telegram_id,
-      binance_api_key, binance_secret_key, investment,
+      binance_api_key, binance_secret_key, investment, is_active,
     } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
       return res.status(400).json({ error: "First name and last name are required" });
     }
     await ensureClientsTable(pool);
+    const activeFlag = is_active === true || is_active === "true" || is_active === "active";
     const result = await pool.query(`
       INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id,
-                           binance_api_key, binance_secret_key, investment)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                           binance_api_key, binance_secret_key, investment, is_active)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING id, first_name, last_name, phone_number, email, telegram_id,
                 binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
     `, [
@@ -1383,6 +1384,7 @@ app.post("/api/clients", async (req, res) => {
       binance_api_key?.trim() || null,
       binance_secret_key?.trim() || null,
       investment != null && investment !== "" ? Number(investment) : 0,
+      activeFlag,
     ]);
     res.status(201).json({ client: maskClientRow(result.rows[0]) });
   } catch (error) {
@@ -1407,6 +1409,12 @@ app.put("/api/clients/:id", async (req, res) => {
     }
     await ensureClientsTable(pool);
     const secretProvided = binance_secret_key && !String(binance_secret_key).startsWith("****");
+    const activeFlag =
+      is_active === true || is_active === "true" || is_active === "active"
+        ? true
+        : is_active === false || is_active === "false" || is_active === "deactive"
+          ? false
+          : null;
     const result = await pool.query(`
       UPDATE clients SET
         first_name = $1,
@@ -1432,7 +1440,7 @@ app.put("/api/clients/:id", async (req, res) => {
       secretProvided,
       secretProvided ? String(binance_secret_key).trim() : null,
       investment != null && investment !== "" ? Number(investment) : 0,
-      is_active,
+      activeFlag,
       id,
     ]);
     if (!result.rows.length) return res.status(404).json({ error: "Client not found" });
