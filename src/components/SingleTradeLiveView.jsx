@@ -4,6 +4,7 @@ import { Play, Settings, Square, Shield, Crosshair, LayoutGrid } from "lucide-re
 import { formatTradeData } from "./TableView";
 import { LogoutButton, UserEmailDisplay } from "../auth";
 import { API_BASE_URL, api, apiFetch, fetchPythonApi } from "../config";
+import { getRobustSymbol, getSymbolFromUniqueId } from "../tradeSymbolUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
@@ -47,28 +48,6 @@ const intervalMap = {
   "1m": "1", "3m": "3", "5m": "5", "15m": "15", "30m": "30", "1h": "60", "4h": "240", "1d": "D",
 };
 const ALL_INTERVALS = ["1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"];
-
-const getRobustSymbol = (pair) => {
-  if (!pair) return "BTCUSDT";
-  let symbol = String(pair).replace(/<[^>]+>/g, "").replace(/\s+/g, "").replace(/[^A-Z0-9]/gi, "").toUpperCase();
-  if (symbol.startsWith("BINANCE")) symbol = symbol.slice(7);
-  symbol = symbol.replace(/PERPETUALCONTRACT|PERP|CHART/gi, "").replace(/\d{6,}$/, "");
-  return symbol || "BTCUSDT";
-};
-
-/** Extract trading pair (e.g. UNIUSDT) from unique_id like "UNIUSDTBUY2026-02-21..." so signals API gets the right symbol when trade is missing from DB. */
-const getSymbolFromUniqueId = (uid) => {
-  if (!uid || typeof uid !== "string") return "";
-  const u = String(uid).toUpperCase();
-  const buy = u.indexOf("BUY");
-  const sell = u.indexOf("SELL");
-  let end = -1;
-  if (buy >= 0 && sell >= 0) end = Math.min(buy, sell);
-  else if (buy >= 0) end = buy;
-  else if (sell >= 0) end = sell;
-  if (end > 0) return String(uid).slice(0, end).replace(/[^A-Z0-9]/gi, "").toUpperCase() || "";
-  return "";
-};
 
 const INDICATORS = [
   { key: "RSI@tv-basicstudies", label: "RSI-9" },

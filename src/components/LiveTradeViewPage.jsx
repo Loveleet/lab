@@ -8,6 +8,7 @@ import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import * as XLSX from 'xlsx';
 import { api, apiFetch, fetchPythonApi } from '../config';
+import { getRobustSymbolOptional, getSymbolFromUniqueId } from '../tradeSymbolUtils';
 
 // loveleet work
 function useQuery() {
@@ -638,31 +639,12 @@ const LiveTradeViewPage = () => {
   }, [uid]); // Add uid as dependency to refetch when uid changes
 
   // Call Python CalculateSignals every 5 minutes for current trade pair (same as SingleTradeLiveView)
-  const getRobustSymbol = (pair) => {
-    if (!pair) return '';
-    let s = String(pair).replace(/<[^>]+>/g, '').replace(/\s+/g, '').replace(/[^A-Z0-9]/gi, '').toUpperCase();
-    if (s.startsWith('BINANCE')) s = s.slice(7);
-    s = s.replace(/PERPETUALCONTRACT|PERP|CHART/gi, '').replace(/\d{6,}$/, '');
-    return s || '';
-  };
-  const getSymbolFromUniqueId = (id) => {
-    if (!id || typeof id !== 'string') return '';
-    const u = String(id).toUpperCase();
-    const buy = u.indexOf('BUY');
-    const sell = u.indexOf('SELL');
-    let end = -1;
-    if (buy >= 0 && sell >= 0) end = Math.min(buy, sell);
-    else if (buy >= 0) end = buy;
-    else if (sell >= 0) end = sell;
-    if (end > 0) return String(id).slice(0, end).replace(/[^A-Z0-9]/gi, '').toUpperCase() || '';
-    return '';
-  };
   const signalSymbol = useMemo(() => {
-    const fromTrade = getRobustSymbol(trades[0]?.pair ?? trades[0]?.Pair ?? '');
+    const fromTrade = getRobustSymbolOptional(trades[0]?.pair ?? trades[0]?.Pair ?? '');
     if (fromTrade) return fromTrade;
     const fromUid = getSymbolFromUniqueId(uid);
     if (fromUid) return fromUid;
-    return getRobustSymbol(uid) || '';
+    return getRobustSymbolOptional(uid) || '';
   }, [trades, uid]);
   const [signalsData, setSignalsData] = useState(null);
   const [signalsLoading, setSignalsLoading] = useState(true);
