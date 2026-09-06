@@ -33,7 +33,9 @@
     }
   };
   tryLoad(path.join(process.cwd(), ".env"));
+  tryLoad(path.join(process.cwd(), "secrets.env"));
   tryLoad(path.join(process.cwd(), "..", ".env"));
+  tryLoad(path.join(process.cwd(), "..", "secrets.env"));
   tryLoad("/etc/lab-trading-dashboard.env");
   tryLoad(process.env.SECRETS_FILE || "");
   tryLoad("/etc/lab-trading-dashboard.secrets.env");
