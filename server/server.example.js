@@ -1362,11 +1362,36 @@ app.get("/api/pairstatus", async (req, res) => {
   }
 });
 
-// ✅ API: Clients CRUD
+// ✅ API: Clients CRUD (person + nested exchange accounts)
 function normalizeClientExchange(value) {
   const e = String(value || "").trim().toLowerCase();
   if (e === "delta") return "delta";
   return "binance";
+}
+
+function parseActiveFlag(value, defaultValue = false) {
+  if (value === true || value === "true" || value === "active") return true;
+  if (value === false || value === "false" || value === "deactive") return false;
+  return defaultValue;
+}
+
+function maskAccountRow(row) {
+  if (!row) return row;
+  const out = { ...row };
+  if (out.api_key && String(out.api_key).length > 8) {
+    out.api_key = String(out.api_key).slice(0, 4) + "****" + String(out.api_key).slice(-4);
+  }
+  if (out.secret_key) {
+    out.secret_key = "****" + String(out.secret_key).slice(-4);
+  }
+  return out;
+}
+
+function maskClientWithAccounts(client, accounts) {
+  return {
+    ...client,
+    accounts: (accounts || []).map(maskAccountRow),
+  };
 }
 
 async function ensureClientsTable(pool) {
@@ -1378,29 +1403,89 @@ async function ensureClientsTable(pool) {
       phone_number        TEXT,
       email               TEXT UNIQUE,
       telegram_id         TEXT,
-      exchange            TEXT NOT NULL DEFAULT 'binance',
-      binance_api_key     TEXT,
-      binance_secret_key  TEXT,
-      investment          NUMERIC(18, 2) DEFAULT 0,
       is_active           BOOLEAN NOT NULL DEFAULT FALSE,
       created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS exchange TEXT NOT NULL DEFAULT 'binance';`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;`).catch(() => {});
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_exchange_accounts (
+      id                  SERIAL PRIMARY KEY,
+      client_id           INT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      exchange            TEXT NOT NULL,
+      api_key             TEXT,
+      secret_key          TEXT,
+      investment          NUMERIC(18, 2) DEFAULT 0,
+      is_active           BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (client_id, exchange)
+    );
+  `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(is_active);`).catch(() => {});
-  await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_exchange ON clients(exchange);`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_exchange_accounts_client ON client_exchange_accounts(client_id);`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_exchange_accounts_exchange ON client_exchange_accounts(exchange);`).catch(() => {});
+
+  // One-time migrate legacy flat columns into accounts (if present)
+  try {
+    const cols = await pool.query(`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'clients'
+        AND column_name IN ('exchange', 'binance_api_key', 'binance_secret_key', 'investment')
+    `);
+    const names = new Set((cols.rows || []).map((r) => r.column_name));
+    if (names.has("binance_api_key") || names.has("exchange")) {
+      await pool.query(`
+        INSERT INTO client_exchange_accounts (client_id, exchange, api_key, secret_key, investment, is_active)
+        SELECT
+          c.id,
+          COALESCE(NULLIF(LOWER(TRIM(c.exchange)), ''), 'binance'),
+          c.binance_api_key,
+          c.binance_secret_key,
+          COALESCE(c.investment, 0),
+          COALESCE(c.is_active, FALSE)
+        FROM clients c
+        WHERE NOT EXISTS (
+          SELECT 1 FROM client_exchange_accounts a WHERE a.client_id = c.id
+        )
+        ON CONFLICT (client_id, exchange) DO NOTHING
+      `);
+    }
+  } catch (e) {
+    console.warn("[clients] legacy migrate skipped:", e.message);
+  }
 }
 
-function maskClientRow(row) {
-  if (!row) return row;
-  const out = { ...row };
-  if (out.binance_api_key && out.binance_api_key.length > 8) {
-    out.binance_api_key = out.binance_api_key.slice(0, 4) + "****" + out.binance_api_key.slice(-4);
-  }
-  if (out.binance_secret_key) {
-    out.binance_secret_key = "****" + out.binance_secret_key.slice(-4);
+async function fetchClientAccounts(pool, clientId) {
+  const result = await pool.query(
+    `SELECT id, client_id, exchange, api_key, secret_key, investment, is_active, created_at, updated_at
+     FROM client_exchange_accounts
+     WHERE client_id = $1
+     ORDER BY exchange ASC`,
+    [clientId]
+  );
+  return result.rows || [];
+}
+
+function normalizeAccountsInput(accounts) {
+  if (!Array.isArray(accounts)) return [];
+  const seen = new Set();
+  const out = [];
+  for (const raw of accounts) {
+    if (!raw || typeof raw !== "object") continue;
+    const exchange = normalizeClientExchange(raw.exchange);
+    if (seen.has(exchange)) continue;
+    seen.add(exchange);
+    out.push({
+      id: raw.id != null ? parseInt(raw.id, 10) : null,
+      exchange,
+      api_key: raw.api_key != null ? String(raw.api_key).trim() : "",
+      secret_key: raw.secret_key != null ? String(raw.secret_key).trim() : "",
+      investment: raw.investment != null && raw.investment !== "" ? Number(raw.investment) : 0,
+      is_active: parseActiveFlag(raw.is_active, false),
+    });
   }
   return out;
 }
@@ -1410,13 +1495,25 @@ app.get("/api/clients", async (req, res) => {
     const pool = await poolPromise;
     if (!pool) return res.status(503).json({ error: "Database not connected", clients: [] });
     await ensureClientsTable(pool);
-    const result = await pool.query(`
-      SELECT id, first_name, last_name, phone_number, email, telegram_id, exchange,
-             binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
+    const clientsRes = await pool.query(`
+      SELECT id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at
       FROM clients
       ORDER BY created_at DESC
     `);
-    res.json({ clients: result.rows.map(maskClientRow) });
+    const accountsRes = await pool.query(`
+      SELECT id, client_id, exchange, api_key, secret_key, investment, is_active, created_at, updated_at
+      FROM client_exchange_accounts
+      ORDER BY exchange ASC
+    `);
+    const byClient = new Map();
+    for (const a of accountsRes.rows || []) {
+      if (!byClient.has(a.client_id)) byClient.set(a.client_id, []);
+      byClient.get(a.client_id).push(a);
+    }
+    const clients = (clientsRes.rows || []).map((c) =>
+      maskClientWithAccounts(c, byClient.get(c.id) || [])
+    );
+    res.json({ clients });
   } catch (error) {
     if (isMissingTable(error)) return res.json({ clients: [] });
     console.error("❌ Query Error (/api/clients):", error.message);
@@ -1428,37 +1525,54 @@ app.post("/api/clients", async (req, res) => {
   try {
     const pool = await poolPromise;
     if (!pool) return res.status(503).json({ error: "Database not connected" });
-    const {
-      first_name, last_name, phone_number, email, telegram_id, exchange,
-      binance_api_key, binance_secret_key, investment, is_active,
-    } = req.body || {};
+    const { first_name, last_name, phone_number, email, telegram_id, is_active, accounts } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
       return res.status(400).json({ error: "First name and last name are required" });
     }
+    const accountList = normalizeAccountsInput(accounts);
+    if (!accountList.length) {
+      return res.status(400).json({ error: "Add at least one exchange account (Binance or Delta)" });
+    }
     await ensureClientsTable(pool);
-    const activeFlag = is_active === true || is_active === "true" || is_active === "active";
-    const exchangeVal = normalizeClientExchange(exchange);
-    const result = await pool.query(`
-      INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id, exchange,
-                           binance_api_key, binance_secret_key, investment, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      RETURNING id, first_name, last_name, phone_number, email, telegram_id, exchange,
-                binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
-    `, [
-      first_name.trim(),
-      last_name.trim(),
-      phone_number?.trim() || null,
-      email?.trim() || null,
-      telegram_id?.trim() || null,
-      exchangeVal,
-      binance_api_key?.trim() || null,
-      binance_secret_key?.trim() || null,
-      investment != null && investment !== "" ? Number(investment) : 0,
-      activeFlag,
-    ]);
-    res.status(201).json({ client: maskClientRow(result.rows[0]) });
+    const clientActive = parseActiveFlag(is_active, false);
+    const clientRes = await pool.query(
+      `INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id, is_active)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at`,
+      [
+        first_name.trim(),
+        last_name.trim(),
+        phone_number?.trim() || null,
+        email?.trim() || null,
+        telegram_id?.trim() || null,
+        clientActive,
+      ]
+    );
+    const client = clientRes.rows[0];
+    for (const acc of accountList) {
+      await pool.query(
+        `INSERT INTO client_exchange_accounts (client_id, exchange, api_key, secret_key, investment, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          client.id,
+          acc.exchange,
+          acc.api_key || null,
+          acc.secret_key || null,
+          Number.isFinite(acc.investment) ? acc.investment : 0,
+          acc.is_active,
+        ]
+      );
+    }
+    const savedAccounts = await fetchClientAccounts(pool, client.id);
+    res.status(201).json({ client: maskClientWithAccounts(client, savedAccounts) });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "Email already exists" });
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: error.constraint?.includes("exchange")
+          ? "Duplicate exchange for this client"
+          : "Email already exists",
+      });
+    }
     console.error("❌ Query Error (POST /api/clients):", error.message);
     res.status(500).json({ error: error.message || "Failed to create client" });
   }
@@ -1470,56 +1584,103 @@ app.put("/api/clients/:id", async (req, res) => {
     if (!pool) return res.status(503).json({ error: "Database not connected" });
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid client id" });
-    const {
-      first_name, last_name, phone_number, email, telegram_id, exchange,
-      binance_api_key, binance_secret_key, investment, is_active,
-    } = req.body || {};
+    const { first_name, last_name, phone_number, email, telegram_id, is_active, accounts } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
       return res.status(400).json({ error: "First name and last name are required" });
     }
+    const accountList = normalizeAccountsInput(accounts);
+    if (!accountList.length) {
+      return res.status(400).json({ error: "Add at least one exchange account (Binance or Delta)" });
+    }
     await ensureClientsTable(pool);
-    const secretProvided = binance_secret_key && !String(binance_secret_key).startsWith("****");
-    const activeFlag =
-      is_active === true || is_active === "true" || is_active === "active"
-        ? true
-        : is_active === false || is_active === "false" || is_active === "deactive"
-          ? false
-          : null;
-    const exchangeVal = normalizeClientExchange(exchange);
-    const result = await pool.query(`
-      UPDATE clients SET
-        first_name = $1,
-        last_name = $2,
-        phone_number = $3,
-        email = $4,
-        telegram_id = $5,
-        exchange = $6,
-        binance_api_key = $7,
-        binance_secret_key = CASE WHEN $8 THEN $9 ELSE binance_secret_key END,
-        investment = $10,
-        is_active = COALESCE($11, is_active),
-        updated_at = NOW()
-      WHERE id = $12
-      RETURNING id, first_name, last_name, phone_number, email, telegram_id, exchange,
-                binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
-    `, [
-      first_name.trim(),
-      last_name.trim(),
-      phone_number?.trim() || null,
-      email?.trim() || null,
-      telegram_id?.trim() || null,
-      exchangeVal,
-      binance_api_key?.trim() || null,
-      secretProvided,
-      secretProvided ? String(binance_secret_key).trim() : null,
-      investment != null && investment !== "" ? Number(investment) : 0,
-      activeFlag,
-      id,
-    ]);
-    if (!result.rows.length) return res.status(404).json({ error: "Client not found" });
-    res.json({ client: maskClientRow(result.rows[0]) });
+    const clientActive = parseActiveFlag(is_active, false);
+    const clientRes = await pool.query(
+      `UPDATE clients SET
+         first_name = $1,
+         last_name = $2,
+         phone_number = $3,
+         email = $4,
+         telegram_id = $5,
+         is_active = $6,
+         updated_at = NOW()
+       WHERE id = $7
+       RETURNING id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at`,
+      [
+        first_name.trim(),
+        last_name.trim(),
+        phone_number?.trim() || null,
+        email?.trim() || null,
+        telegram_id?.trim() || null,
+        clientActive,
+        id,
+      ]
+    );
+    if (!clientRes.rows.length) return res.status(404).json({ error: "Client not found" });
+
+    const existing = await fetchClientAccounts(pool, id);
+    const keepIds = [];
+    for (const acc of accountList) {
+      const secretProvided = acc.secret_key && !String(acc.secret_key).startsWith("****");
+      const match =
+        (Number.isFinite(acc.id) && existing.find((e) => e.id === acc.id)) ||
+        existing.find((e) => e.exchange === acc.exchange);
+      if (match) {
+        await pool.query(
+          `UPDATE client_exchange_accounts SET
+             exchange = $1,
+             api_key = $2,
+             secret_key = CASE WHEN $3 THEN $4 ELSE secret_key END,
+             investment = $5,
+             is_active = $6,
+             updated_at = NOW()
+           WHERE id = $7`,
+          [
+            acc.exchange,
+            acc.api_key || null,
+            secretProvided,
+            secretProvided ? acc.secret_key : null,
+            Number.isFinite(acc.investment) ? acc.investment : 0,
+            acc.is_active,
+            match.id,
+          ]
+        );
+        keepIds.push(match.id);
+      } else {
+        const ins = await pool.query(
+          `INSERT INTO client_exchange_accounts (client_id, exchange, api_key, secret_key, investment, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id`,
+          [
+            id,
+            acc.exchange,
+            acc.api_key || null,
+            secretProvided ? acc.secret_key : (acc.secret_key || null),
+            Number.isFinite(acc.investment) ? acc.investment : 0,
+            acc.is_active,
+          ]
+        );
+        keepIds.push(ins.rows[0].id);
+      }
+    }
+    if (keepIds.length) {
+      await pool.query(
+        `DELETE FROM client_exchange_accounts WHERE client_id = $1 AND NOT (id = ANY($2::int[]))`,
+        [id, keepIds]
+      );
+    } else {
+      await pool.query(`DELETE FROM client_exchange_accounts WHERE client_id = $1`, [id]);
+    }
+
+    const savedAccounts = await fetchClientAccounts(pool, id);
+    res.json({ client: maskClientWithAccounts(clientRes.rows[0], savedAccounts) });
   } catch (error) {
-    if (error.code === "23505") return res.status(409).json({ error: "Email already exists" });
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: error.constraint?.includes("exchange")
+          ? "Duplicate exchange for this client"
+          : "Email already exists",
+      });
+    }
     console.error("❌ Query Error (PUT /api/clients/:id):", error.message);
     res.status(500).json({ error: error.message || "Failed to update client" });
   }

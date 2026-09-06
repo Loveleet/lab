@@ -3,23 +3,29 @@ import { Link } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import { apiFetch } from "../config";
 
+const EXCHANGE_OPTIONS = [
+  { value: "binance", label: "Binance" },
+  { value: "delta", label: "Delta" },
+];
+
+const emptyAccount = (exchange = "binance") => ({
+  id: null,
+  exchange,
+  api_key: "",
+  secret_key: "",
+  investment: "",
+  is_active: false,
+});
+
 const EMPTY_FORM = {
   first_name: "",
   last_name: "",
   phone_number: "",
   email: "",
   telegram_id: "",
-  exchange: "binance",
-  binance_api_key: "",
-  binance_secret_key: "",
-  investment: "",
   is_active: false,
+  accounts: [emptyAccount("binance")],
 };
-
-const EXCHANGE_OPTIONS = [
-  { value: "binance", label: "Binance" },
-  { value: "delta", label: "Delta" },
-];
 
 const formatExchangeLabel = (value) => {
   const v = String(value || "").toLowerCase();
@@ -69,12 +75,23 @@ const ClientsPage = () => {
 
   const openAddModal = () => {
     setEditingId(null);
-    setForm(EMPTY_FORM);
+    setForm({ ...EMPTY_FORM, accounts: [emptyAccount("binance")] });
     setFormError(null);
     setModalOpen(true);
   };
 
   const openEditModal = (client) => {
+    const accounts =
+      Array.isArray(client.accounts) && client.accounts.length
+        ? client.accounts.map((a) => ({
+            id: a.id ?? null,
+            exchange: a.exchange === "delta" ? "delta" : "binance",
+            api_key: a.api_key || "",
+            secret_key: a.secret_key || "",
+            investment: a.investment != null ? String(a.investment) : "",
+            is_active: !!a.is_active,
+          }))
+        : [emptyAccount("binance")];
     setEditingId(client.id);
     setForm({
       first_name: client.first_name || "",
@@ -82,11 +99,8 @@ const ClientsPage = () => {
       phone_number: client.phone_number || "",
       email: client.email || "",
       telegram_id: client.telegram_id || "",
-      exchange: client.exchange === "delta" ? "delta" : "binance",
-      binance_api_key: client.binance_api_key || "",
-      binance_secret_key: client.binance_secret_key || "",
-      investment: client.investment != null ? String(client.investment) : "",
       is_active: !!client.is_active,
+      accounts,
     });
     setFormError(null);
     setModalOpen(true);
@@ -103,17 +117,63 @@ const ClientsPage = () => {
     setForm((prev) => ({ ...prev, [field]: e.target.value }));
   };
 
+  const handleAccountChange = (index, field) => (e) => {
+    const value = field === "is_active" ? e.target.value === "active" : e.target.value;
+    setForm((prev) => {
+      const accounts = prev.accounts.map((acc, i) =>
+        i === index ? { ...acc, [field]: value } : acc
+      );
+      return { ...prev, accounts };
+    });
+  };
+
+  const addAccount = () => {
+    setForm((prev) => {
+      const used = new Set(prev.accounts.map((a) => a.exchange));
+      const nextExchange = used.has("binance") ? (used.has("delta") ? "binance" : "delta") : "binance";
+      if (prev.accounts.length >= EXCHANGE_OPTIONS.length) return prev;
+      return { ...prev, accounts: [...prev.accounts, emptyAccount(nextExchange)] };
+    });
+  };
+
+  const removeAccount = (index) => {
+    setForm((prev) => {
+      if (prev.accounts.length <= 1) return prev;
+      return { ...prev, accounts: prev.accounts.filter((_, i) => i !== index) };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setSaving(true);
     setFormError(null);
     try {
+      const exchanges = form.accounts.map((a) => a.exchange);
+      if (new Set(exchanges).size !== exchanges.length) {
+        throw new Error("Each exchange can only be added once (Binance and/or Delta)");
+      }
+      const payload = {
+        first_name: form.first_name,
+        last_name: form.last_name,
+        phone_number: form.phone_number,
+        email: form.email,
+        telegram_id: form.telegram_id,
+        is_active: form.is_active,
+        accounts: form.accounts.map((a) => ({
+          id: a.id,
+          exchange: a.exchange,
+          api_key: a.api_key,
+          secret_key: a.secret_key,
+          investment: a.investment,
+          is_active: a.is_active,
+        })),
+      };
       const url = editingId ? `/api/clients/${editingId}` : "/api/clients";
       const method = editingId ? "PUT" : "POST";
       const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const text = await res.text();
       let data = {};
@@ -150,7 +210,9 @@ const ClientsPage = () => {
 
   const formatInvestment = (val) => {
     const n = parseFloat(val);
-    return Number.isFinite(n) ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+    return Number.isFinite(n)
+      ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : "—";
   };
 
   const formatStatus = (active) => (
@@ -165,6 +227,14 @@ const ClientsPage = () => {
     </span>
   );
 
+  const totalInvestment = (accounts) => {
+    if (!Array.isArray(accounts) || !accounts.length) return null;
+    return accounts.reduce((sum, a) => {
+      const n = parseFloat(a.investment);
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-[#f5f6fa] dark:bg-black text-gray-900 dark:text-gray-100">
       <Sidebar isOpen={isSidebarOpen} toggleSidebar={() => setIsSidebarOpen((o) => !o)} />
@@ -173,7 +243,9 @@ const ClientsPage = () => {
           <div className="flex items-center justify-between flex-wrap gap-3 shrink-0">
             <div>
               <h1 className="text-2xl font-bold">Clients</h1>
-              <p className="text-sm text-gray-600 dark:text-gray-300">Manage client accounts and Binance credentials</p>
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                One client profile with Binance and/or Delta exchange accounts
+              </p>
             </div>
             <div className="flex items-center gap-2">
               <Link
@@ -214,50 +286,68 @@ const ClientsPage = () => {
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Telegram</th>
-                    <th className="px-4 py-3">Exchange</th>
-                    <th className="px-4 py-3">API Key</th>
-                    <th className="px-4 py-3">Secret Key</th>
+                    <th className="px-4 py-3">Exchanges</th>
                     <th className="px-4 py-3 text-right">Investment</th>
                     <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {clients.map((client, index) => (
-                    <tr
-                      key={client.id}
-                      className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60"
-                    >
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{index + 1}</td>
-                      <td className="px-4 py-3 font-medium whitespace-nowrap">
-                        {client.first_name} {client.last_name}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">{client.phone_number || "—"}</td>
-                      <td className="px-4 py-3">{client.email || "—"}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{client.telegram_id || "—"}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{formatExchangeLabel(client.exchange)}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{client.binance_api_key || "—"}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{client.binance_secret_key || "—"}</td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">{formatInvestment(client.investment)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">{formatStatus(client.is_active)}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(client)}
-                          className="text-blue-600 dark:text-blue-400 hover:underline mr-3"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(client)}
-                          className="text-red-600 dark:text-red-400 hover:underline"
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {clients.map((client, index) => {
+                    const accounts = Array.isArray(client.accounts) ? client.accounts : [];
+                    return (
+                      <tr
+                        key={client.id}
+                        className="border-t border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60 align-top"
+                      >
+                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{index + 1}</td>
+                        <td className="px-4 py-3 font-medium whitespace-nowrap">
+                          {client.first_name} {client.last_name}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">{client.phone_number || "—"}</td>
+                        <td className="px-4 py-3">{client.email || "—"}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{client.telegram_id || "—"}</td>
+                        <td className="px-4 py-3">
+                          {accounts.length ? (
+                            <div className="flex flex-col gap-1">
+                              {accounts.map((a) => (
+                                <div key={a.id || a.exchange} className="text-xs">
+                                  <span className="font-semibold">{formatExchangeLabel(a.exchange)}</span>
+                                  <span className="text-gray-500 dark:text-gray-400">
+                                    {" "}
+                                    · {a.is_active ? "Active" : "Deactive"}
+                                    {a.api_key ? ` · ${a.api_key}` : ""}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {formatInvestment(totalInvestment(accounts))}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">{formatStatus(client.is_active)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(client)}
+                            className="text-blue-600 dark:text-blue-400 hover:underline mr-3"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(client)}
+                            className="text-red-600 dark:text-red-400 hover:underline"
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             )}
@@ -267,10 +357,14 @@ const ClientsPage = () => {
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="w-full max-w-lg rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 max-h-[90vh] overflow-y-auto">
+          <div className="w-full max-w-2xl rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
               <h2 className="text-lg font-semibold">{editingId ? "Edit Client" : "Add New Client"}</h2>
-              <button type="button" onClick={closeModal} className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-xl leading-none">
+              <button
+                type="button"
+                onClick={closeModal}
+                className="text-gray-500 hover:text-gray-800 dark:hover:text-gray-200 text-xl leading-none"
+              >
                 ×
               </button>
             </div>
@@ -329,54 +423,104 @@ const ClientsPage = () => {
                   className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
                 />
               </label>
-              <label className="block">
-                <span className="text-sm font-medium">Exchange *</span>
-                <select
-                  required
-                  value={form.exchange}
-                  onChange={handleChange("exchange")}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
-                >
-                  {EXCHANGE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">API Key</span>
-                <input
-                  type="text"
-                  value={form.binance_api_key}
-                  onChange={handleChange("binance_api_key")}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 font-mono text-sm"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Secret Key</span>
-                <input
-                  type="password"
-                  value={form.binance_secret_key}
-                  onChange={handleChange("binance_secret_key")}
-                  placeholder={editingId ? "Leave unchanged to keep existing" : ""}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 font-mono text-sm"
-                />
-              </label>
-              <label className="block">
-                <span className="text-sm font-medium">Investment</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.investment}
-                  onChange={handleChange("investment")}
-                  className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
-                />
-              </label>
+
+              <div className="space-y-3 pt-2 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold">Exchange accounts</h3>
+                  <button
+                    type="button"
+                    onClick={addAccount}
+                    disabled={form.accounts.length >= EXCHANGE_OPTIONS.length}
+                    className="text-sm px-3 py-1 rounded bg-gray-200 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-300 dark:hover:bg-gray-700 disabled:opacity-50"
+                  >
+                    + Add exchange
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Add Binance and/or Delta under the same client. New accounts default to Deactive.
+                </p>
+                {form.accounts.map((acc, index) => (
+                  <div
+                    key={acc.id || `new-${index}`}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-3 bg-gray-50 dark:bg-gray-800/40"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium">Account {index + 1}</span>
+                      {form.accounts.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeAccount(index)}
+                          className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="text-sm font-medium">Exchange *</span>
+                        <select
+                          required
+                          value={acc.exchange}
+                          onChange={handleAccountChange(index, "exchange")}
+                          className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                        >
+                          {EXCHANGE_OPTIONS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="block">
+                        <span className="text-sm font-medium">Status</span>
+                        <select
+                          value={acc.is_active ? "active" : "deactive"}
+                          onChange={handleAccountChange(index, "is_active")}
+                          className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                        >
+                          <option value="deactive">Deactive</option>
+                          <option value="active">Active</option>
+                        </select>
+                      </label>
+                    </div>
+                    <label className="block">
+                      <span className="text-sm font-medium">API Key</span>
+                      <input
+                        type="text"
+                        value={acc.api_key}
+                        onChange={handleAccountChange(index, "api_key")}
+                        className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 font-mono text-sm"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-medium">Secret Key</span>
+                      <input
+                        type="password"
+                        value={acc.secret_key}
+                        onChange={handleAccountChange(index, "secret_key")}
+                        placeholder={editingId ? "Leave unchanged to keep existing" : ""}
+                        className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 font-mono text-sm"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="text-sm font-medium">Investment</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={acc.investment}
+                        onChange={handleAccountChange(index, "investment")}
+                        className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                      />
+                    </label>
+                  </div>
+                ))}
+              </div>
+
               {editingId ? (
                 <label className="block">
-                  <span className="text-sm font-medium">Status</span>
+                  <span className="text-sm font-medium">Client status</span>
                   <select
                     value={form.is_active ? "active" : "deactive"}
                     onChange={(e) =>
@@ -393,6 +537,7 @@ const ClientsPage = () => {
                   New clients are created as <strong>Deactive</strong>.
                 </p>
               )}
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
