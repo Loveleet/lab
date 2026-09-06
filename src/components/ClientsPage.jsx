@@ -315,7 +315,7 @@ const ClientsPage = () => {
                                   <span className="font-semibold">{formatExchangeLabel(a.exchange)}</span>
                                   <span className="text-gray-500 dark:text-gray-400">
                                     {" "}
-                                    · {a.is_active ? "Active" : "Deactive"}
+                                    · Deactive
                                     {a.api_key ? ` · ${a.api_key}` : ""}
                                   </span>
                                 </div>
@@ -437,7 +437,7 @@ const ClientsPage = () => {
                   </button>
                 </div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Add Binance and/or Delta under the same client. New accounts default to Deactive.
+                  Add Binance and/or Delta under the same client. Status stays Deactive; API keys are stored encrypted.
                 </p>
                 {form.accounts.map((acc, index) => (
                   <div
@@ -456,7 +456,7 @@ const ClientsPage = () => {
                         </button>
                       )}
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 gap-3">
                       <label className="block">
                         <span className="text-sm font-medium">Exchange *</span>
                         <select
@@ -472,18 +472,10 @@ const ClientsPage = () => {
                           ))}
                         </select>
                       </label>
-                      <label className="block">
-                        <span className="text-sm font-medium">Status</span>
-                        <select
-                          value={acc.is_active ? "active" : "deactive"}
-                          onChange={handleAccountChange(index, "is_active")}
-                          className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
-                        >
-                          <option value="deactive">Deactive</option>
-                          <option value="active">Active</option>
-                        </select>
-                      </label>
                     </div>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                      Status is always <strong>Deactive</strong>. Keys are encrypted in the database.
+                    </p>
                     <label className="block">
                       <span className="text-sm font-medium">API Key</span>
                       <input
@@ -518,25 +510,9 @@ const ClientsPage = () => {
                 ))}
               </div>
 
-              {editingId ? (
-                <label className="block">
-                  <span className="text-sm font-medium">Client status</span>
-                  <select
-                    value={form.is_active ? "active" : "deactive"}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, is_active: e.target.value === "active" }))
-                    }
-                    className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
-                  >
-                    <option value="active">Active</option>
-                    <option value="deactive">Deactive</option>
-                  </select>
-                </label>
-              ) : (
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  New clients are created as <strong>Deactive</strong>.
-                </p>
-              )}
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Client and exchange status are always <strong>Deactive</strong>.
+              </p>
 
               <div className="flex justify-end gap-2 pt-2">
                 <button

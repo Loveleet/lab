@@ -51,6 +51,7 @@ const { Pool } = require("pg");
 const axios = require('axios');
 const { spawn } = require("child_process");
 const zlib = require("zlib");
+const crypto = require("crypto");
 
 const app = express();
 const fs = require("fs");
@@ -1363,35 +1364,116 @@ app.get("/api/pairstatus", async (req, res) => {
 });
 
 // ✅ API: Clients CRUD (person + nested exchange accounts)
+// Status is always Deactive from this UI. API/secret keys are AES-256-GCM encrypted at rest.
+const CLIENT_SECRET_ENC_PREFIX = "enc:v1:";
+
+function getClientCredentialsKey() {
+  const raw = String(process.env.CLIENT_CREDENTIALS_KEY || "").trim();
+  if (!raw) return null;
+  return crypto.createHash("sha256").update(raw).digest(); // 32 bytes
+}
+
+function isEncryptedClientSecret(value) {
+  return typeof value === "string" && value.startsWith(CLIENT_SECRET_ENC_PREFIX);
+}
+
+function isMaskedClientSecret(value) {
+  return typeof value === "string" && value.includes("****");
+}
+
+function encryptClientSecret(plain) {
+  if (plain == null || String(plain).trim() === "") return null;
+  const key = getClientCredentialsKey();
+  if (!key) {
+    const err = new Error("CLIENT_CREDENTIALS_KEY is not set on the server — cannot store secrets encrypted");
+    err.code = "NO_CLIENT_CREDENTIALS_KEY";
+    throw err;
+  }
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const enc = Buffer.concat([cipher.update(String(plain), "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return CLIENT_SECRET_ENC_PREFIX + Buffer.concat([iv, tag, enc]).toString("base64");
+}
+
+function decryptClientSecret(stored) {
+  if (stored == null || stored === "") return "";
+  const s = String(stored);
+  if (!isEncryptedClientSecret(s)) return s; // legacy plaintext
+  const key = getClientCredentialsKey();
+  if (!key) return "";
+  try {
+    const buf = Buffer.from(s.slice(CLIENT_SECRET_ENC_PREFIX.length), "base64");
+    const iv = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const data = buf.subarray(28);
+    const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
+  } catch (e) {
+    console.warn("[clients] decrypt failed:", e.message);
+    return "";
+  }
+}
+
 function normalizeClientExchange(value) {
   const e = String(value || "").trim().toLowerCase();
   if (e === "delta") return "delta";
   return "binance";
 }
 
-function parseActiveFlag(value, defaultValue = false) {
-  if (value === true || value === "true" || value === "active") return true;
-  if (value === false || value === "false" || value === "deactive") return false;
-  return defaultValue;
+function maskSecretForDisplay(plain) {
+  const s = String(plain || "");
+  if (!s) return null;
+  if (s.length <= 8) return "****";
+  return s.slice(0, 4) + "****" + s.slice(-4);
 }
 
 function maskAccountRow(row) {
   if (!row) return row;
   const out = { ...row };
-  if (out.api_key && String(out.api_key).length > 8) {
-    out.api_key = String(out.api_key).slice(0, 4) + "****" + String(out.api_key).slice(-4);
-  }
-  if (out.secret_key) {
-    out.secret_key = "****" + String(out.secret_key).slice(-4);
-  }
+  const apiPlain = decryptClientSecret(out.api_key);
+  const secretPlain = decryptClientSecret(out.secret_key);
+  out.api_key = maskSecretForDisplay(apiPlain);
+  out.secret_key = secretPlain ? "****" + secretPlain.slice(-4) : null;
+  out.is_active = false;
   return out;
 }
 
 function maskClientWithAccounts(client, accounts) {
   return {
     ...client,
+    is_active: false,
     accounts: (accounts || []).map(maskAccountRow),
   };
+}
+
+async function encryptExistingPlaintextSecrets(pool) {
+  const key = getClientCredentialsKey();
+  if (!key) return;
+  try {
+    const result = await pool.query(
+      `SELECT id, api_key, secret_key FROM client_exchange_accounts
+       WHERE (api_key IS NOT NULL AND api_key <> '' AND api_key NOT LIKE 'enc:v1:%')
+          OR (secret_key IS NOT NULL AND secret_key <> '' AND secret_key NOT LIKE 'enc:v1:%')`
+    );
+    for (const row of result.rows || []) {
+      const api = row.api_key && !isEncryptedClientSecret(row.api_key) ? encryptClientSecret(row.api_key) : row.api_key;
+      const secret =
+        row.secret_key && !isEncryptedClientSecret(row.secret_key)
+          ? encryptClientSecret(row.secret_key)
+          : row.secret_key;
+      await pool.query(
+        `UPDATE client_exchange_accounts SET api_key = $1, secret_key = $2, updated_at = NOW() WHERE id = $3`,
+        [api, secret, row.id]
+      );
+    }
+    if ((result.rows || []).length) {
+      console.log(`[clients] encrypted ${(result.rows || []).length} legacy plaintext credential row(s)`);
+    }
+  } catch (e) {
+    console.warn("[clients] plaintext re-encrypt skipped:", e.message);
+  }
 }
 
 async function ensureClientsTable(pool) {
@@ -1428,7 +1510,6 @@ async function ensureClientsTable(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_exchange_accounts_client ON client_exchange_accounts(client_id);`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_exchange_accounts_exchange ON client_exchange_accounts(exchange);`).catch(() => {});
 
-  // One-time migrate legacy flat columns into accounts (if present)
   try {
     const cols = await pool.query(`
       SELECT column_name FROM information_schema.columns
@@ -1445,7 +1526,7 @@ async function ensureClientsTable(pool) {
           c.binance_api_key,
           c.binance_secret_key,
           COALESCE(c.investment, 0),
-          COALESCE(c.is_active, FALSE)
+          FALSE
         FROM clients c
         WHERE NOT EXISTS (
           SELECT 1 FROM client_exchange_accounts a WHERE a.client_id = c.id
@@ -1456,6 +1537,8 @@ async function ensureClientsTable(pool) {
   } catch (e) {
     console.warn("[clients] legacy migrate skipped:", e.message);
   }
+
+  await encryptExistingPlaintextSecrets(pool);
 }
 
 async function fetchClientAccounts(pool, clientId) {
@@ -1484,10 +1567,15 @@ function normalizeAccountsInput(accounts) {
       api_key: raw.api_key != null ? String(raw.api_key).trim() : "",
       secret_key: raw.secret_key != null ? String(raw.secret_key).trim() : "",
       investment: raw.investment != null && raw.investment !== "" ? Number(raw.investment) : 0,
-      is_active: parseActiveFlag(raw.is_active, false),
+      is_active: false,
     });
   }
   return out;
+}
+
+function prepareSecretForStorage(incoming, existingEncrypted) {
+  if (!incoming || isMaskedClientSecret(incoming)) return existingEncrypted || null;
+  return encryptClientSecret(incoming);
 }
 
 app.get("/api/clients", async (req, res) => {
@@ -1525,7 +1613,12 @@ app.post("/api/clients", async (req, res) => {
   try {
     const pool = await poolPromise;
     if (!pool) return res.status(503).json({ error: "Database not connected" });
-    const { first_name, last_name, phone_number, email, telegram_id, is_active, accounts } = req.body || {};
+    if (!getClientCredentialsKey()) {
+      return res.status(503).json({
+        error: "Server missing CLIENT_CREDENTIALS_KEY — set it in secrets.env to encrypt API keys",
+      });
+    }
+    const { first_name, last_name, phone_number, email, telegram_id, accounts } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
       return res.status(400).json({ error: "First name and last name are required" });
     }
@@ -1534,10 +1627,9 @@ app.post("/api/clients", async (req, res) => {
       return res.status(400).json({ error: "Add at least one exchange account (Binance or Delta)" });
     }
     await ensureClientsTable(pool);
-    const clientActive = parseActiveFlag(is_active, false);
     const clientRes = await pool.query(
       `INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1, $2, $3, $4, $5, FALSE)
        RETURNING id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at`,
       [
         first_name.trim(),
@@ -1545,27 +1637,28 @@ app.post("/api/clients", async (req, res) => {
         phone_number?.trim() || null,
         email?.trim() || null,
         telegram_id?.trim() || null,
-        clientActive,
       ]
     );
     const client = clientRes.rows[0];
     for (const acc of accountList) {
       await pool.query(
         `INSERT INTO client_exchange_accounts (client_id, exchange, api_key, secret_key, investment, is_active)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+         VALUES ($1, $2, $3, $4, $5, FALSE)`,
         [
           client.id,
           acc.exchange,
-          acc.api_key || null,
-          acc.secret_key || null,
+          prepareSecretForStorage(acc.api_key, null),
+          prepareSecretForStorage(acc.secret_key, null),
           Number.isFinite(acc.investment) ? acc.investment : 0,
-          acc.is_active,
         ]
       );
     }
     const savedAccounts = await fetchClientAccounts(pool, client.id);
     res.status(201).json({ client: maskClientWithAccounts(client, savedAccounts) });
   } catch (error) {
+    if (error.code === "NO_CLIENT_CREDENTIALS_KEY") {
+      return res.status(503).json({ error: error.message });
+    }
     if (error.code === "23505") {
       return res.status(409).json({
         error: error.constraint?.includes("exchange")
@@ -1582,9 +1675,14 @@ app.put("/api/clients/:id", async (req, res) => {
   try {
     const pool = await poolPromise;
     if (!pool) return res.status(503).json({ error: "Database not connected" });
+    if (!getClientCredentialsKey()) {
+      return res.status(503).json({
+        error: "Server missing CLIENT_CREDENTIALS_KEY — set it in secrets.env to encrypt API keys",
+      });
+    }
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid client id" });
-    const { first_name, last_name, phone_number, email, telegram_id, is_active, accounts } = req.body || {};
+    const { first_name, last_name, phone_number, email, telegram_id, accounts } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
       return res.status(400).json({ error: "First name and last name are required" });
     }
@@ -1593,7 +1691,6 @@ app.put("/api/clients/:id", async (req, res) => {
       return res.status(400).json({ error: "Add at least one exchange account (Binance or Delta)" });
     }
     await ensureClientsTable(pool);
-    const clientActive = parseActiveFlag(is_active, false);
     const clientRes = await pool.query(
       `UPDATE clients SET
          first_name = $1,
@@ -1601,9 +1698,9 @@ app.put("/api/clients/:id", async (req, res) => {
          phone_number = $3,
          email = $4,
          telegram_id = $5,
-         is_active = $6,
+         is_active = FALSE,
          updated_at = NOW()
-       WHERE id = $7
+       WHERE id = $6
        RETURNING id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at`,
       [
         first_name.trim(),
@@ -1611,7 +1708,6 @@ app.put("/api/clients/:id", async (req, res) => {
         phone_number?.trim() || null,
         email?.trim() || null,
         telegram_id?.trim() || null,
-        clientActive,
         id,
       ]
     );
@@ -1620,27 +1716,26 @@ app.put("/api/clients/:id", async (req, res) => {
     const existing = await fetchClientAccounts(pool, id);
     const keepIds = [];
     for (const acc of accountList) {
-      const secretProvided = acc.secret_key && !String(acc.secret_key).startsWith("****");
       const match =
         (Number.isFinite(acc.id) && existing.find((e) => e.id === acc.id)) ||
         existing.find((e) => e.exchange === acc.exchange);
       if (match) {
+        const nextApi = prepareSecretForStorage(acc.api_key, match.api_key);
+        const nextSecret = prepareSecretForStorage(acc.secret_key, match.secret_key);
         await pool.query(
           `UPDATE client_exchange_accounts SET
              exchange = $1,
              api_key = $2,
-             secret_key = CASE WHEN $3 THEN $4 ELSE secret_key END,
-             investment = $5,
-             is_active = $6,
+             secret_key = $3,
+             investment = $4,
+             is_active = FALSE,
              updated_at = NOW()
-           WHERE id = $7`,
+           WHERE id = $5`,
           [
             acc.exchange,
-            acc.api_key || null,
-            secretProvided,
-            secretProvided ? acc.secret_key : null,
+            nextApi,
+            nextSecret,
             Number.isFinite(acc.investment) ? acc.investment : 0,
-            acc.is_active,
             match.id,
           ]
         );
@@ -1648,15 +1743,14 @@ app.put("/api/clients/:id", async (req, res) => {
       } else {
         const ins = await pool.query(
           `INSERT INTO client_exchange_accounts (client_id, exchange, api_key, secret_key, investment, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6)
+           VALUES ($1, $2, $3, $4, $5, FALSE)
            RETURNING id`,
           [
             id,
             acc.exchange,
-            acc.api_key || null,
-            secretProvided ? acc.secret_key : (acc.secret_key || null),
+            prepareSecretForStorage(acc.api_key, null),
+            prepareSecretForStorage(acc.secret_key, null),
             Number.isFinite(acc.investment) ? acc.investment : 0,
-            acc.is_active,
           ]
         );
         keepIds.push(ins.rows[0].id);
@@ -1674,6 +1768,9 @@ app.put("/api/clients/:id", async (req, res) => {
     const savedAccounts = await fetchClientAccounts(pool, id);
     res.json({ client: maskClientWithAccounts(clientRes.rows[0], savedAccounts) });
   } catch (error) {
+    if (error.code === "NO_CLIENT_CREDENTIALS_KEY") {
+      return res.status(503).json({ error: error.message });
+    }
     if (error.code === "23505") {
       return res.status(409).json({
         error: error.constraint?.includes("exchange")
