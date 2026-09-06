@@ -1363,6 +1363,12 @@ app.get("/api/pairstatus", async (req, res) => {
 });
 
 // ✅ API: Clients CRUD
+function normalizeClientExchange(value) {
+  const e = String(value || "").trim().toLowerCase();
+  if (e === "delta") return "delta";
+  return "binance";
+}
+
 async function ensureClientsTable(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS clients (
@@ -1372,6 +1378,7 @@ async function ensureClientsTable(pool) {
       phone_number        TEXT,
       email               TEXT UNIQUE,
       telegram_id         TEXT,
+      exchange            TEXT NOT NULL DEFAULT 'binance',
       binance_api_key     TEXT,
       binance_secret_key  TEXT,
       investment          NUMERIC(18, 2) DEFAULT 0,
@@ -1380,8 +1387,10 @@ async function ensureClientsTable(pool) {
       updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS exchange TEXT NOT NULL DEFAULT 'binance';`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_email ON clients(email);`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(is_active);`).catch(() => {});
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_exchange ON clients(exchange);`).catch(() => {});
 }
 
 function maskClientRow(row) {
@@ -1402,7 +1411,7 @@ app.get("/api/clients", async (req, res) => {
     if (!pool) return res.status(503).json({ error: "Database not connected", clients: [] });
     await ensureClientsTable(pool);
     const result = await pool.query(`
-      SELECT id, first_name, last_name, phone_number, email, telegram_id,
+      SELECT id, first_name, last_name, phone_number, email, telegram_id, exchange,
              binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
       FROM clients
       ORDER BY created_at DESC
@@ -1420,7 +1429,7 @@ app.post("/api/clients", async (req, res) => {
     const pool = await poolPromise;
     if (!pool) return res.status(503).json({ error: "Database not connected" });
     const {
-      first_name, last_name, phone_number, email, telegram_id,
+      first_name, last_name, phone_number, email, telegram_id, exchange,
       binance_api_key, binance_secret_key, investment, is_active,
     } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
@@ -1428,11 +1437,12 @@ app.post("/api/clients", async (req, res) => {
     }
     await ensureClientsTable(pool);
     const activeFlag = is_active === true || is_active === "true" || is_active === "active";
+    const exchangeVal = normalizeClientExchange(exchange);
     const result = await pool.query(`
-      INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id,
+      INSERT INTO clients (first_name, last_name, phone_number, email, telegram_id, exchange,
                            binance_api_key, binance_secret_key, investment, is_active)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, first_name, last_name, phone_number, email, telegram_id,
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, first_name, last_name, phone_number, email, telegram_id, exchange,
                 binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
     `, [
       first_name.trim(),
@@ -1440,6 +1450,7 @@ app.post("/api/clients", async (req, res) => {
       phone_number?.trim() || null,
       email?.trim() || null,
       telegram_id?.trim() || null,
+      exchangeVal,
       binance_api_key?.trim() || null,
       binance_secret_key?.trim() || null,
       investment != null && investment !== "" ? Number(investment) : 0,
@@ -1460,7 +1471,7 @@ app.put("/api/clients/:id", async (req, res) => {
     const id = parseInt(req.params.id, 10);
     if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid client id" });
     const {
-      first_name, last_name, phone_number, email, telegram_id,
+      first_name, last_name, phone_number, email, telegram_id, exchange,
       binance_api_key, binance_secret_key, investment, is_active,
     } = req.body || {};
     if (!first_name?.trim() || !last_name?.trim()) {
@@ -1474,6 +1485,7 @@ app.put("/api/clients/:id", async (req, res) => {
         : is_active === false || is_active === "false" || is_active === "deactive"
           ? false
           : null;
+    const exchangeVal = normalizeClientExchange(exchange);
     const result = await pool.query(`
       UPDATE clients SET
         first_name = $1,
@@ -1481,13 +1493,14 @@ app.put("/api/clients/:id", async (req, res) => {
         phone_number = $3,
         email = $4,
         telegram_id = $5,
-        binance_api_key = $6,
-        binance_secret_key = CASE WHEN $7 THEN $8 ELSE binance_secret_key END,
-        investment = $9,
-        is_active = COALESCE($10, is_active),
+        exchange = $6,
+        binance_api_key = $7,
+        binance_secret_key = CASE WHEN $8 THEN $9 ELSE binance_secret_key END,
+        investment = $10,
+        is_active = COALESCE($11, is_active),
         updated_at = NOW()
-      WHERE id = $11
-      RETURNING id, first_name, last_name, phone_number, email, telegram_id,
+      WHERE id = $12
+      RETURNING id, first_name, last_name, phone_number, email, telegram_id, exchange,
                 binance_api_key, binance_secret_key, investment, is_active, created_at, updated_at
     `, [
       first_name.trim(),
@@ -1495,6 +1508,7 @@ app.put("/api/clients/:id", async (req, res) => {
       phone_number?.trim() || null,
       email?.trim() || null,
       telegram_id?.trim() || null,
+      exchangeVal,
       binance_api_key?.trim() || null,
       secretProvided,
       secretProvided ? String(binance_secret_key).trim() : null,

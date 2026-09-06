@@ -9,10 +9,22 @@ const EMPTY_FORM = {
   phone_number: "",
   email: "",
   telegram_id: "",
+  exchange: "binance",
   binance_api_key: "",
   binance_secret_key: "",
   investment: "",
   is_active: false,
+};
+
+const EXCHANGE_OPTIONS = [
+  { value: "binance", label: "Binance" },
+  { value: "delta", label: "Delta" },
+];
+
+const formatExchangeLabel = (value) => {
+  const v = String(value || "").toLowerCase();
+  if (v === "delta") return "Delta";
+  return "Binance";
 };
 
 const ClientsPage = () => {
@@ -70,6 +82,7 @@ const ClientsPage = () => {
       phone_number: client.phone_number || "",
       email: client.email || "",
       telegram_id: client.telegram_id || "",
+      exchange: client.exchange === "delta" ? "delta" : "binance",
       binance_api_key: client.binance_api_key || "",
       binance_secret_key: client.binance_secret_key || "",
       investment: client.investment != null ? String(client.investment) : "",
@@ -201,7 +214,8 @@ const ClientsPage = () => {
                     <th className="px-4 py-3">Phone</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Telegram</th>
-                    <th className="px-4 py-3">Binance API Key</th>
+                    <th className="px-4 py-3">Exchange</th>
+                    <th className="px-4 py-3">API Key</th>
                     <th className="px-4 py-3">Secret Key</th>
                     <th className="px-4 py-3 text-right">Investment</th>
                     <th className="px-4 py-3">Status</th>
@@ -221,6 +235,7 @@ const ClientsPage = () => {
                       <td className="px-4 py-3 whitespace-nowrap">{client.phone_number || "—"}</td>
                       <td className="px-4 py-3">{client.email || "—"}</td>
                       <td className="px-4 py-3 whitespace-nowrap">{client.telegram_id || "—"}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatExchangeLabel(client.exchange)}</td>
                       <td className="px-4 py-3 font-mono text-xs">{client.binance_api_key || "—"}</td>
                       <td className="px-4 py-3 font-mono text-xs">{client.binance_secret_key || "—"}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">{formatInvestment(client.investment)}</td>
@@ -315,7 +330,22 @@ const ClientsPage = () => {
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium">Binance API Key</span>
+                <span className="text-sm font-medium">Exchange *</span>
+                <select
+                  required
+                  value={form.exchange}
+                  onChange={handleChange("exchange")}
+                  className="mt-1 w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800"
+                >
+                  {EXCHANGE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium">API Key</span>
                 <input
                   type="text"
                   value={form.binance_api_key}
@@ -324,7 +354,7 @@ const ClientsPage = () => {
                 />
               </label>
               <label className="block">
-                <span className="text-sm font-medium">Binance Secret Key</span>
+                <span className="text-sm font-medium">Secret Key</span>
                 <input
                   type="password"
                   value={form.binance_secret_key}
