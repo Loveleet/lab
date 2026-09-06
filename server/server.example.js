@@ -1539,6 +1539,8 @@ async function ensureClientsTable(pool) {
   }
 
   await encryptExistingPlaintextSecrets(pool);
+  await pool.query(`UPDATE clients SET is_active = FALSE WHERE is_active IS DISTINCT FROM FALSE`).catch(() => {});
+  await pool.query(`UPDATE client_exchange_accounts SET is_active = FALSE WHERE is_active IS DISTINCT FROM FALSE`).catch(() => {});
 }
 
 async function fetchClientAccounts(pool, clientId) {
