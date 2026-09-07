@@ -1808,21 +1808,6 @@ app.delete("/api/clients/:id/accounts/:accountId", async (req, res) => {
     res.status(500).json({ error: error.message || "Failed to delete exchange" });
   }
 });
-  } catch (error) {
-    if (error.code === "NO_CLIENT_CREDENTIALS_KEY") {
-      return res.status(503).json({ error: error.message });
-    }
-    if (error.code === "23505") {
-      return res.status(409).json({
-        error: error.constraint?.includes("exchange")
-          ? "Duplicate exchange for this client"
-          : "Email already exists",
-      });
-    }
-    console.error("❌ Query Error (PUT /api/clients/:id):", error.message);
-    res.status(500).json({ error: error.message || "Failed to update client" });
-  }
-});
 
 app.delete("/api/clients/:id", async (req, res) => {
   try {
