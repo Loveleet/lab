@@ -1493,6 +1493,7 @@ async function ensureClientsTable(pool) {
     );
   `);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ALTER COLUMN is_active SET DEFAULT FALSE;`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_exchange_accounts (
       id                  SERIAL PRIMARY KEY,
@@ -1543,6 +1544,11 @@ async function ensureClientsTable(pool) {
   await encryptExistingPlaintextSecrets(pool);
   await pool.query(`UPDATE clients SET is_active = FALSE WHERE is_active IS DISTINCT FROM FALSE`).catch(() => {});
   await pool.query(`UPDATE client_exchange_accounts SET is_active = FALSE WHERE is_active IS DISTINCT FROM FALSE`).catch(() => {});
+  // Drop leftover credential columns from the old flat clients table
+  await pool.query(`ALTER TABLE clients DROP COLUMN IF EXISTS binance_api_key`).catch(() => {});
+  await pool.query(`ALTER TABLE clients DROP COLUMN IF EXISTS binance_secret_key`).catch(() => {});
+  await pool.query(`ALTER TABLE clients DROP COLUMN IF EXISTS investment`).catch(() => {});
+  await pool.query(`ALTER TABLE clients DROP COLUMN IF EXISTS exchange`).catch(() => {});
 }
 
 async function fetchClientAccounts(pool, clientId) {
