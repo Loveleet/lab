@@ -42,7 +42,10 @@ const ClientsPage = () => {
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [formError, setFormError] = useState(null);
+  const [deleteExchange, setDeleteExchange] = useState(null);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteError, setDeleteError] = useState(null);
+  const [deleting, setDeleting] = useState(false);
 
   const loadClients = useCallback(async () => {
     setLoading(true);
@@ -111,6 +114,9 @@ const ClientsPage = () => {
     setEditingId(null);
     setForm(EMPTY_FORM);
     setFormError(null);
+    setDeleteExchange(null);
+    setDeletePassword("");
+    setDeleteError(null);
   };
 
   const handleChange = (field) => (e) => {
@@ -136,11 +142,50 @@ const ClientsPage = () => {
     });
   };
 
-  const removeAccount = (index) => {
-    setForm((prev) => {
-      if (prev.accounts.length <= 1) return prev;
-      return { ...prev, accounts: prev.accounts.filter((_, i) => i !== index) };
-    });
+  const requestDeleteExchange = (index) => {
+    const acc = form.accounts[index];
+    if (!acc) return;
+    if (!editingId || !acc.id) {
+      setForm((prev) => {
+        if (prev.accounts.length <= 1) return prev;
+        return { ...prev, accounts: prev.accounts.filter((_, i) => i !== index) };
+      });
+      return;
+    }
+    setDeleteExchange({ index, id: acc.id, exchange: acc.exchange });
+    setDeletePassword("");
+    setDeleteError(null);
+  };
+
+  const confirmDeleteExchange = async () => {
+    if (!deleteExchange || !editingId) return;
+    const pw = (deletePassword || "").trim();
+    if (!pw) {
+      setDeleteError("Enter password");
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await apiFetch(`/api/clients/${editingId}/accounts/${deleteExchange.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pw }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || data.message || "Failed to delete exchange");
+      setForm((prev) => ({
+        ...prev,
+        accounts: prev.accounts.filter((_, i) => i !== deleteExchange.index),
+      }));
+      setDeleteExchange(null);
+      setDeletePassword("");
+      await loadClients();
+    } catch (err) {
+      setDeleteError(err.message || "Failed to delete exchange");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -149,8 +194,11 @@ const ClientsPage = () => {
     setFormError(null);
     try {
       const exchanges = form.accounts.map((a) => a.exchange);
-      if (new Set(exchanges).size !== exchanges.length) {
+      if (exchanges.length && new Set(exchanges).size !== exchanges.length) {
         throw new Error("Each exchange can only be added once (Binance and/or Delta)");
+      }
+      if (!editingId && !form.accounts.length) {
+        throw new Error("Add at least one exchange account (Binance or Delta)");
       }
       const payload = {
         first_name: form.first_name,
@@ -445,16 +493,26 @@ const ClientsPage = () => {
                     className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 space-y-3 bg-gray-50 dark:bg-gray-800/40"
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">Account {index + 1}</span>
-                      {form.accounts.length > 1 && (
+                      <span className="text-sm font-medium">
+                        {formatExchangeLabel(acc.exchange)}
+                      </span>
+                      {editingId && acc.id ? (
                         <button
                           type="button"
-                          onClick={() => removeAccount(index)}
+                          onClick={() => requestDeleteExchange(index)}
+                          className="text-xs text-red-600 dark:text-red-400 hover:underline"
+                        >
+                          Delete exchange
+                        </button>
+                      ) : form.accounts.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => requestDeleteExchange(index)}
                           className="text-xs text-red-600 dark:text-red-400 hover:underline"
                         >
                           Remove
                         </button>
-                      )}
+                      ) : null}
                     </div>
                     <div className="grid grid-cols-1 gap-3">
                       <label className="block">
@@ -531,6 +589,55 @@ const ClientsPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {deleteExchange && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 className="text-lg font-semibold mb-2">Delete exchange</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Enter password to delete <strong>{formatExchangeLabel(deleteExchange.exchange)}</strong> from this client.
+            </p>
+            {deleteError && (
+              <div className="mb-3 px-3 py-2 rounded bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200 text-sm">
+                {deleteError}
+              </div>
+            )}
+            <input
+              type="password"
+              autoFocus
+              autoComplete="current-password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmDeleteExchange();
+              }}
+              placeholder="Password"
+              className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteExchange(null);
+                  setDeletePassword("");
+                  setDeleteError(null);
+                }}
+                className="px-4 py-2 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={confirmDeleteExchange}
+                className="px-4 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
           </div>
         </div>
       )}

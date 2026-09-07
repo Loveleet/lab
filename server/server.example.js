@@ -1697,9 +1697,6 @@ app.put("/api/clients/:id", async (req, res) => {
       return res.status(400).json({ error: "First name and last name are required" });
     }
     const accountList = normalizeAccountsInput(accounts);
-    if (!accountList.length) {
-      return res.status(400).json({ error: "Add at least one exchange account (Binance or Delta)" });
-    }
     await ensureClientsTable(pool);
     const clientRes = await pool.query(
       `UPDATE clients SET
@@ -1722,6 +1719,11 @@ app.put("/api/clients/:id", async (req, res) => {
       ]
     );
     if (!clientRes.rows.length) return res.status(404).json({ error: "Client not found" });
+
+    if (!accountList.length) {
+      const savedAccounts = await fetchClientAccounts(pool, id);
+      return res.json({ client: maskClientWithAccounts(clientRes.rows[0], savedAccounts) });
+    }
 
     const existing = await fetchClientAccounts(pool, id);
     const keepIds = [];
@@ -1766,17 +1768,46 @@ app.put("/api/clients/:id", async (req, res) => {
         keepIds.push(ins.rows[0].id);
       }
     }
-    if (keepIds.length) {
-      await pool.query(
-        `DELETE FROM client_exchange_accounts WHERE client_id = $1 AND NOT (id = ANY($2::int[]))`,
-        [id, keepIds]
-      );
-    } else {
-      await pool.query(`DELETE FROM client_exchange_accounts WHERE client_id = $1`, [id]);
-    }
-
     const savedAccounts = await fetchClientAccounts(pool, id);
     res.json({ client: maskClientWithAccounts(clientRes.rows[0], savedAccounts) });
+  } catch (error) {
+    if (error.code === "NO_CLIENT_CREDENTIALS_KEY") {
+      return res.status(503).json({ error: error.message });
+    }
+    if (error.code === "23505") {
+      return res.status(409).json({
+        error: error.constraint?.includes("exchange")
+          ? "Duplicate exchange for this client"
+          : "Email already exists",
+      });
+    }
+    console.error("❌ Query Error (PUT /api/clients/:id):", error.message);
+    res.status(500).json({ error: error.message || "Failed to update client" });
+  }
+});
+
+app.delete("/api/clients/:id/accounts/:accountId", async (req, res) => {
+  if (!(await requireActionPassword(req, res))) return;
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.status(503).json({ error: "Database not connected" });
+    const clientId = parseInt(req.params.id, 10);
+    const accountId = parseInt(req.params.accountId, 10);
+    if (!Number.isFinite(clientId) || !Number.isFinite(accountId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    await ensureClientsTable(pool);
+    const result = await pool.query(
+      `DELETE FROM client_exchange_accounts WHERE id = $1 AND client_id = $2 RETURNING id, exchange`,
+      [accountId, clientId]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: "Exchange account not found" });
+    res.json({ ok: true, deleted: result.rows[0] });
+  } catch (error) {
+    console.error("❌ Query Error (DELETE /api/clients/:id/accounts/:accountId):", error.message);
+    res.status(500).json({ error: error.message || "Failed to delete exchange" });
+  }
+});
   } catch (error) {
     if (error.code === "NO_CLIENT_CREDENTIALS_KEY") {
       return res.status(503).json({ error: error.message });
