@@ -1438,14 +1438,14 @@ function maskAccountRow(row) {
   const secretPlain = decryptClientSecret(out.secret_key);
   out.api_key = maskSecretForDisplay(apiPlain);
   out.secret_key = secretPlain ? "****" + secretPlain.slice(-4) : null;
-  out.is_active = false;
+  out.is_active = !!out.is_active;
   return out;
 }
 
 function maskClientWithAccounts(client, accounts) {
   return {
     ...client,
-    is_active: false,
+    is_active: !!client?.is_active,
     accounts: (accounts || []).map(maskAccountRow),
   };
 }
@@ -1542,8 +1542,6 @@ async function ensureClientsTable(pool) {
   }
 
   await encryptExistingPlaintextSecrets(pool);
-  await pool.query(`UPDATE clients SET is_active = FALSE WHERE is_active IS DISTINCT FROM FALSE`).catch(() => {});
-  await pool.query(`UPDATE client_exchange_accounts SET is_active = FALSE WHERE is_active IS DISTINCT FROM FALSE`).catch(() => {});
   // Drop leftover credential columns from the old flat clients table
   await pool.query(`ALTER TABLE clients DROP COLUMN IF EXISTS binance_api_key`).catch(() => {});
   await pool.query(`ALTER TABLE clients DROP COLUMN IF EXISTS binance_secret_key`).catch(() => {});
@@ -1705,7 +1703,6 @@ app.put("/api/clients/:id", async (req, res) => {
          phone_number = $3,
          email = $4,
          telegram_id = $5,
-         is_active = FALSE,
          updated_at = NOW()
        WHERE id = $6
        RETURNING id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at`,
@@ -1740,7 +1737,6 @@ app.put("/api/clients/:id", async (req, res) => {
              api_key = $2,
              secret_key = $3,
              investment = $4,
-             is_active = FALSE,
              updated_at = NOW()
            WHERE id = $5`,
           [
@@ -1783,6 +1779,34 @@ app.put("/api/clients/:id", async (req, res) => {
     }
     console.error("❌ Query Error (PUT /api/clients/:id):", error.message);
     res.status(500).json({ error: error.message || "Failed to update client" });
+  }
+});
+
+app.patch("/api/clients/:id/status", async (req, res) => {
+  const wantActive = req.body?.is_active === true || req.body?.is_active === "true";
+  if (wantActive && !(await requireActionPassword(req, res))) return;
+  try {
+    const pool = await poolPromise;
+    if (!pool) return res.status(503).json({ error: "Database not connected" });
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "Invalid client id" });
+    await ensureClientsTable(pool);
+    const clientRes = await pool.query(
+      `UPDATE clients SET is_active = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, first_name, last_name, phone_number, email, telegram_id, is_active, created_at, updated_at`,
+      [wantActive, id]
+    );
+    if (!clientRes.rows.length) return res.status(404).json({ error: "Client not found" });
+    await pool.query(
+      `UPDATE client_exchange_accounts SET is_active = $1, updated_at = NOW() WHERE client_id = $2`,
+      [wantActive, id]
+    );
+    const savedAccounts = await fetchClientAccounts(pool, id);
+    res.json({ client: maskClientWithAccounts(clientRes.rows[0], savedAccounts) });
+  } catch (error) {
+    console.error("❌ Query Error (PATCH /api/clients/:id/status):", error.message);
+    res.status(500).json({ error: error.message || "Failed to update client status" });
   }
 });
 

@@ -47,6 +47,10 @@ const ClientsPage = () => {
   const [deletePassword, setDeletePassword] = useState("");
   const [deleteError, setDeleteError] = useState(null);
   const [deleting, setDeleting] = useState(false);
+  const [statusClient, setStatusClient] = useState(null);
+  const [statusPassword, setStatusPassword] = useState("");
+  const [statusError, setStatusError] = useState(null);
+  const [statusSaving, setStatusSaving] = useState(false);
 
   const loadClients = useCallback(async () => {
     setLoading(true);
@@ -257,24 +261,59 @@ const ClientsPage = () => {
     }
   };
 
+  const applyClientStatus = async (client, isActive, password) => {
+    const body = { is_active: isActive };
+    if (isActive) body.password = password;
+    const res = await apiFetch(`/api/clients/${client.id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || data.message || "Failed to update status");
+    await loadClients();
+  };
+
+  const requestToggleStatus = (client) => {
+    if (client.is_active) {
+      const name = `${client.first_name || ""} ${client.last_name || ""}`.trim() || "this client";
+      if (!window.confirm(`Deactivate ${name}?`)) return;
+      applyClientStatus(client, false).catch((err) => {
+        setError(err.message || "Failed to deactivate client");
+      });
+      return;
+    }
+    setStatusClient(client);
+    setStatusPassword("");
+    setStatusError(null);
+  };
+
+  const confirmActivateClient = async () => {
+    if (!statusClient) return;
+    const pw = (statusPassword || "").trim();
+    if (!pw) {
+      setStatusError("Enter password");
+      return;
+    }
+    setStatusSaving(true);
+    setStatusError(null);
+    try {
+      await applyClientStatus(statusClient, true, pw);
+      setStatusClient(null);
+      setStatusPassword("");
+    } catch (err) {
+      setStatusError(err.message || "Failed to activate client");
+    } finally {
+      setStatusSaving(false);
+    }
+  };
+
   const formatInvestment = (val) => {
     const n = parseFloat(val);
     return Number.isFinite(n)
       ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : "—";
   };
-
-  const formatStatus = (active) => (
-    <span
-      className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
-        active
-          ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200"
-          : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300"
-      }`}
-    >
-      {active ? "Active" : "Deactive"}
-    </span>
-  );
 
   const totalInvestment = (accounts) => {
     if (!Array.isArray(accounts) || !accounts.length) return null;
@@ -364,7 +403,7 @@ const ClientsPage = () => {
                                   <span className="font-semibold">{formatExchangeLabel(a.exchange)}</span>
                                   <span className="text-gray-500 dark:text-gray-400">
                                     {" "}
-                                    · Deactive
+                                    · {a.is_active ? "Active" : "Deactive"}
                                     {a.api_key ? ` · ${a.api_key}` : ""}
                                   </span>
                                 </div>
@@ -377,7 +416,20 @@ const ClientsPage = () => {
                         <td className="px-4 py-3 text-right whitespace-nowrap">
                           {formatInvestment(totalInvestment(accounts))}
                         </td>
-                        <td className="px-4 py-3 whitespace-nowrap">{formatStatus(client.is_active)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <button
+                            type="button"
+                            onClick={() => requestToggleStatus(client)}
+                            className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${
+                              client.is_active
+                                ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200 hover:bg-green-200"
+                                : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
+                            }`}
+                            title={client.is_active ? "Click to deactivate" : "Click to activate (password required)"}
+                          >
+                            {client.is_active ? "Active" : "Deactive"}
+                          </button>
+                        </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <button
                             type="button"
@@ -533,7 +585,7 @@ const ClientsPage = () => {
                       </label>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Status is always <strong>Deactive</strong>. Keys are encrypted in the database.
+                      Keys are encrypted in the database. Activate from the clients list (password required).
                     </p>
                     <label className="block">
                       <span className="text-sm font-medium">API Key</span>
@@ -570,7 +622,7 @@ const ClientsPage = () => {
               </div>
 
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Client and exchange status are always <strong>Deactive</strong>.
+                New clients stay Deactive. After save, use Status on the list to activate (password required).
               </p>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -590,6 +642,59 @@ const ClientsPage = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {statusClient && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
+            <h3 className="text-lg font-semibold mb-2">Activate client</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
+              Enter password to activate{" "}
+              <strong>
+                {statusClient.first_name} {statusClient.last_name}
+              </strong>
+              .
+            </p>
+            {statusError && (
+              <div className="mb-3 px-3 py-2 rounded bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200 text-sm">
+                {statusError}
+              </div>
+            )}
+            <input
+              type="password"
+              autoFocus
+              autoComplete="current-password"
+              value={statusPassword}
+              onChange={(e) => setStatusPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmActivateClient();
+              }}
+              placeholder="Password"
+              className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusClient(null);
+                  setStatusPassword("");
+                  setStatusError(null);
+                }}
+                className="px-4 py-2 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={statusSaving}
+                onClick={confirmActivateClient}
+                className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+              >
+                {statusSaving ? "Activating…" : "Activate"}
+              </button>
+            </div>
           </div>
         </div>
       )}
