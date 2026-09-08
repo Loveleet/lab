@@ -302,7 +302,8 @@ const ClientsPage = () => {
       setStatusClient(null);
       setStatusPassword("");
     } catch (err) {
-      setStatusError(err.message || "Failed to activate client");
+      const msg = err.message || "Failed to activate client";
+      setStatusError(msg === "Failed to fetch" ? "Cannot reach API server. Refresh and try again." : msg);
     } finally {
       setStatusSaving(false);
     }
