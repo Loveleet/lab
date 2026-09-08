@@ -1783,8 +1783,8 @@ app.put("/api/clients/:id", async (req, res) => {
 });
 
 app.patch("/api/clients/:id/status", async (req, res) => {
+  if (!(await requireActionPassword(req, res))) return;
   const wantActive = req.body?.is_active === true || req.body?.is_active === "true";
-  if (wantActive && !(await requireActionPassword(req, res))) return;
   try {
     const pool = await poolPromise;
     if (!pool) return res.status(503).json({ error: "Database not connected" });

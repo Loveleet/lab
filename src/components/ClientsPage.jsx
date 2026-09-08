@@ -48,6 +48,7 @@ const ClientsPage = () => {
   const [deleteError, setDeleteError] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [statusClient, setStatusClient] = useState(null);
+  const [statusWantActive, setStatusWantActive] = useState(true);
   const [statusPassword, setStatusPassword] = useState("");
   const [statusError, setStatusError] = useState(null);
   const [statusSaving, setStatusSaving] = useState(false);
@@ -262,12 +263,10 @@ const ClientsPage = () => {
   };
 
   const applyClientStatus = async (client, isActive, password) => {
-    const body = { is_active: isActive };
-    if (isActive) body.password = password;
     const res = await apiFetch(`/api/clients/${client.id}/status`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ is_active: isActive, password }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || data.message || "Failed to update status");
@@ -275,20 +274,13 @@ const ClientsPage = () => {
   };
 
   const requestToggleStatus = (client) => {
-    if (client.is_active) {
-      const name = `${client.first_name || ""} ${client.last_name || ""}`.trim() || "this client";
-      if (!window.confirm(`Deactivate ${name}?`)) return;
-      applyClientStatus(client, false).catch((err) => {
-        setError(err.message || "Failed to deactivate client");
-      });
-      return;
-    }
     setStatusClient(client);
+    setStatusWantActive(!client.is_active);
     setStatusPassword("");
     setStatusError(null);
   };
 
-  const confirmActivateClient = async () => {
+  const confirmStatusChange = async () => {
     if (!statusClient) return;
     const pw = (statusPassword || "").trim();
     if (!pw) {
@@ -298,11 +290,11 @@ const ClientsPage = () => {
     setStatusSaving(true);
     setStatusError(null);
     try {
-      await applyClientStatus(statusClient, true, pw);
+      await applyClientStatus(statusClient, statusWantActive, pw);
       setStatusClient(null);
       setStatusPassword("");
     } catch (err) {
-      const msg = err.message || "Failed to activate client";
+      const msg = err.message || "Failed to update status";
       setStatusError(msg === "Failed to fetch" ? "Cannot reach API server. Refresh and try again." : msg);
     } finally {
       setStatusSaving(false);
@@ -426,7 +418,7 @@ const ClientsPage = () => {
                                 ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200 hover:bg-green-200"
                                 : "bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600"
                             }`}
-                            title={client.is_active ? "Click to deactivate" : "Click to activate (password required)"}
+                            title="Password required to change status"
                           >
                             {client.is_active ? "Active" : "Deactive"}
                           </button>
@@ -586,7 +578,7 @@ const ClientsPage = () => {
                       </label>
                     </div>
                     <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Keys are encrypted in the database. Activate from the clients list (password required).
+                      Keys are encrypted in the database. Change status from the clients list (password required).
                     </p>
                     <label className="block">
                       <span className="text-sm font-medium">API Key</span>
@@ -623,7 +615,7 @@ const ClientsPage = () => {
               </div>
 
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                New clients stay Deactive. After save, use Status on the list to activate (password required).
+                New clients stay Deactive. After save, use Status on the list (password required to activate or deactivate).
               </p>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -650,9 +642,11 @@ const ClientsPage = () => {
       {statusClient && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-sm rounded-xl bg-white dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-700 p-5">
-            <h3 className="text-lg font-semibold mb-2">Activate client</h3>
+            <h3 className="text-lg font-semibold mb-2">
+              {statusWantActive ? "Activate client" : "Deactivate client"}
+            </h3>
             <p className="text-sm text-gray-600 dark:text-gray-300 mb-4">
-              Enter password to activate{" "}
+              Enter password to {statusWantActive ? "activate" : "deactivate"}{" "}
               <strong>
                 {statusClient.first_name} {statusClient.last_name}
               </strong>
@@ -670,7 +664,7 @@ const ClientsPage = () => {
               value={statusPassword}
               onChange={(e) => setStatusPassword(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") confirmActivateClient();
+                if (e.key === "Enter") confirmStatusChange();
               }}
               placeholder="Password"
               className="w-full px-3 py-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 mb-4"
@@ -690,10 +684,18 @@ const ClientsPage = () => {
               <button
                 type="button"
                 disabled={statusSaving}
-                onClick={confirmActivateClient}
-                className="px-4 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+                onClick={confirmStatusChange}
+                className={`px-4 py-2 rounded text-white disabled:opacity-60 ${
+                  statusWantActive ? "bg-green-600 hover:bg-green-700" : "bg-gray-700 hover:bg-gray-800"
+                }`}
               >
-                {statusSaving ? "Activating…" : "Activate"}
+                {statusSaving
+                  ? statusWantActive
+                    ? "Activating…"
+                    : "Deactivating…"
+                  : statusWantActive
+                    ? "Activate"
+                    : "Deactivate"}
               </button>
             </div>
           </div>
