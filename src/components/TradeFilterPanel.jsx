@@ -39,6 +39,11 @@ const TradeFilterPanel = ({
   setLiveFilter,
   liveRadioMode,
   setLiveRadioMode,
+  selectedExchanges,
+  setSelectedExchanges,
+  selectedClients,
+  setSelectedClients,
+  clientsForFilter,
   signalToggleAll,
   setSignalToggleAll,
   machineToggleAll,
@@ -209,6 +214,53 @@ const TradeFilterPanel = ({
                 />
               )}
               <span className="text-gray-700 dark:text-gray-200 font-semibold">{signalLabels[signal] || signal}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0 h-full xl:col-start-1 xl:row-start-2 bg-gradient-to-br from-cyan-50 via-white to-cyan-100 dark:from-cyan-950 dark:via-gray-900 dark:to-cyan-900 rounded-2xl shadow-lg border border-cyan-200 dark:border-cyan-800 p-4 gap-2">
+        {cardHeader("🏦", "Exchange", "text-cyan-700 dark:text-cyan-200", null, null)}
+        <div className="flex flex-wrap gap-2">
+          {["binance", "delta"].map((ex) => (
+            <label key={ex} className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
+              <input
+                type="checkbox"
+                checked={Boolean((selectedExchanges || {})[ex])}
+                onChange={() => {
+                  setSelectedExchanges((prev) => {
+                    const updated = { ...(prev || { binance: true, delta: true }), [ex]: !prev?.[ex] };
+                    localStorage.setItem("selectedExchanges", JSON.stringify(updated));
+                    return updated;
+                  });
+                }}
+                className="form-checkbox h-5 w-5 text-cyan-600"
+              />
+              <span className="text-gray-700 dark:text-gray-200 font-semibold">{ex}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <div className="min-w-0 h-full xl:col-start-2 xl:row-start-2 bg-gradient-to-br from-orange-50 via-white to-orange-100 dark:from-orange-950 dark:via-gray-900 dark:to-orange-900 rounded-2xl shadow-lg border border-orange-200 dark:border-orange-800 p-4 gap-2">
+        {cardHeader("👤", "Client", "text-orange-700 dark:text-orange-200", null, null)}
+        <div className="flex flex-wrap gap-2">
+          {(clientsForFilter || []).length === 0 && (
+            <span className="text-xs text-gray-500">Click Refresh exchanges</span>
+          )}
+          {(clientsForFilter || []).map((c) => (
+            <label key={c.id} className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
+              <input
+                type="checkbox"
+                checked={selectedClients?.[c.id] !== false}
+                onChange={() => {
+                  setSelectedClients((prev) => {
+                    const updated = { ...(prev || {}), [c.id]: prev?.[c.id] === false };
+                    localStorage.setItem("selectedClients", JSON.stringify(updated));
+                    return updated;
+                  });
+                }}
+                className="form-checkbox h-5 w-5 text-orange-600"
+              />
+              <span className="text-gray-700 dark:text-gray-200 font-semibold">{c.name}</span>
             </label>
           ))}
         </div>

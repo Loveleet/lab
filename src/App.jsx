@@ -37,6 +37,9 @@ import {
   resolveActiveViewDay,
   getTradeType,
   isRunningLikeTrade,
+  tradeVenue,
+  tradeClientId,
+  tradeClientName,
   isClosedTradeType,
 } from "./tradeFilterUtils";
 
@@ -518,6 +521,26 @@ const [liveFilter, setLiveFilter] = useState(() => {
   }
   return { true: true, false: true }; // Both checked by default (show all)
 });
+const [selectedExchanges, setSelectedExchanges] = useState(() => {
+  try {
+    const saved = localStorage.getItem("selectedExchanges");
+    if (saved) return JSON.parse(saved);
+  } catch (_) {}
+  return { binance: true, delta: true };
+});
+useEffect(() => {
+  localStorage.setItem("selectedExchanges", JSON.stringify(selectedExchanges));
+}, [selectedExchanges]);
+const [selectedClients, setSelectedClients] = useState(() => {
+  try {
+    const saved = localStorage.getItem("selectedClients");
+    if (saved) return JSON.parse(saved);
+  } catch (_) {}
+  return {};
+});
+useEffect(() => {
+  localStorage.setItem("selectedClients", JSON.stringify(selectedClients));
+}, [selectedClients]);
 useEffect(() => {
   localStorage.setItem("liveFilter", JSON.stringify(liveFilter));
 }, [liveFilter]);
@@ -743,6 +766,19 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       setSelectedSignals((prev) => {
         const merged = mergeFilterSelections(signalKeys, collapseSignalSelectionMap(prev), true);
         localStorage.setItem("selectedSignals", JSON.stringify(merged));
+        return merged;
+      });
+      const clientIds = Array.from(
+        new Set(
+          trades
+            .map((t) => tradeClientId(t))
+            .filter((id) => id > 0)
+            .map(String)
+        )
+      );
+      setSelectedClients((prev) => {
+        const merged = mergeFilterSelections(clientIds, prev, true);
+        localStorage.setItem("selectedClients", JSON.stringify(merged));
         return merged;
       });
 
@@ -1005,6 +1041,15 @@ const filteredTradeData = useMemo(() => {
     } else if (!liveFilter.true && !liveFilter.false) {
       return false; // Neither selected: show nothing
     }
+    if (!selectedExchanges[tradeVenue(trade)]) {
+      return false;
+    }
+    const cid = tradeClientId(trade);
+    const clientKeys = Object.keys(selectedClients || {});
+    if (clientKeys.length) {
+      if (cid <= 0) return false;
+      if (selectedClients[String(cid)] !== true) return false;
+    }
 
     // Single-day view: closed on that day; running only when that day is today
     if (activeViewDay) {
@@ -1034,7 +1079,7 @@ const filteredTradeData = useMemo(() => {
   });
 
   return baseFiltered;
-}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter]);
+}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter, selectedExchanges, selectedClients]);
 
 // Debug: log machine coverage and trade counts (raw vs filtered)
 useEffect(() => {
@@ -1117,15 +1162,14 @@ const getFilteredForTitle = useMemo(() => {
       if (isDirectClosedTrade(trade)) pushTo("Direct_Closed_Stats");
     }
     
-    if (isHedgeClosedTrade(trade)) {
+    if (tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade)) {
       pushTo("Hedge_Closed_Stats");
     }
     
     // Running Stats
     if (trade.type === "running" || trade.type === "hedge_hold") {
       pushTo("Total_Running_Stats");
-      // Treat type=hedge_hold as hedge even if hedge flag is unset
-      const isHedgeEffective = isHedge || trade.type === "hedge_hold";
+      const isHedgeEffective = tradeVenue(trade) === "binance" && (isHedge || trade.type === "hedge_hold");
       if (!isHedgeEffective) {
         pushTo("Direct_Running_Stats");
       }
@@ -1162,6 +1206,18 @@ const getFilteredForTitle = useMemo(() => {
 }, [filteredTradeData]);
 
   // Signals list available in current filtered data (for settings UI)
+  const clientsForFilter = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(tradeData) ? tradeData : []).forEach((t) => {
+      const id = tradeClientId(t);
+      if (id <= 0) return;
+      if (!map.has(id)) map.set(id, tradeClientName(t) || `Client ${id}`);
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id: String(id), name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [tradeData]);
+
   const availableSignals = useMemo(() => {
     const set = new Set(
       (Array.isArray(filteredTradeData) ? filteredTradeData : [])
@@ -1399,10 +1455,10 @@ useEffect(() => {
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
 
   const hedgeClosedPlus = filteredTradeData
-  .filter(trade => isHedgeClosedTrade(trade) && getTradePl(trade) > 0)
+  .filter(trade => tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade) && getTradePl(trade) > 0)
   .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const hedgeClosedMinus = filteredTradeData
-  .filter(trade => isHedgeClosedTrade(trade))
+  .filter(trade => tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade))
   .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const hedgeClosedTotal = hedgeClosedMinus + hedgeClosedPlus;
   const totalClosedTotal = closePlus + hedgeClosedPlus + closeMinus + hedgeClosedMinus;
@@ -1483,9 +1539,9 @@ Direct_Closed_Stats: (
               </span>
               </>),
 Hedge_Closed_Stats: (
-            <>
+            <span className={!selectedExchanges.binance ? "opacity-40" : ""}>
 
-               <span title="Total Trades Count (Hedge + Direct)" className={`relative px-[3px] text-yellow-300 font-semibold font-semibold`} style={{ fontSize: `${26 + (fontSizeLevel - 8) * 5}px` }}>Hedge Closed  &nbsp;</span>
+               <span title="Binance hedge only — Delta has no hedge" className={`relative px-[3px] text-yellow-300 font-semibold font-semibold`} style={{ fontSize: `${26 + (fontSizeLevel - 8) * 5}px` }}>Hedge Closed  &nbsp;</span>
               <span title="Total Trades Count (Hedge + Direct)" className={`relative px-[3px] text-yellow-300 font-semibold opacity-70 font-semibold`} style={{ fontSize: `${24 + (fontSizeLevel - 8) * 5}px` }}>👇&nbsp;</span>
             &nbsp;
              
@@ -1493,7 +1549,7 @@ Hedge_Closed_Stats: (
                 className={`relative px-[3px] text-yellow-300 font-semibold  font-semibold`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}
                 title="Closed Hedge Count"
               >
-                {filteredTradeData.filter(trade => isHedgeClosedTrade(trade)).length}
+                {filteredTradeData.filter(trade => tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade)).length}
               </span>
              
               <div style={{ height: '14px' }} />
@@ -1502,7 +1558,7 @@ Hedge_Closed_Stats: (
               <span className={`text-red-400 text-[30px]`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }} title="Closed Hedge Profit -">{hedgeClosedMinus.toFixed(2)}</span>
               &nbsp;&nbsp;<span style={{ fontSize: `${25 + (fontSizeLevel - 8) * 5}px` }}>=</span>&nbsp;&nbsp;
               <span className={`${hedgeClosedTotal >= 0 ? "text-green-300" : "text-red-400"} text-[30px]`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }} title="Closed Hedge Profit Total">{hedgeClosedTotal.toFixed(2)}</span>
-            </>
+            </span>
           ),
 Total_Running_Stats: (
           <>
@@ -2503,10 +2559,10 @@ useEffect(() => {
                   type="button"
                   onClick={handleRefreshBinance}
                   disabled={binanceRefreshing}
-                  title="Call Binance only when you click. Syncs open positions into the DB."
+                  title="Sync open positions from every client's Binance and/or Delta accounts."
                   className="px-3 py-1.5 rounded-lg text-sm font-bold border border-teal-600 bg-teal-600 hover:bg-teal-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  {binanceRefreshing ? "Binance…" : "Refresh Binance"}
+                  {binanceRefreshing ? "Syncing…" : "Refresh exchanges"}
                 </button>
                 <div className="flex flex-col gap-1 min-w-[9rem] max-w-[11rem]">
                   {closedCacheProgress && (
@@ -2816,6 +2872,11 @@ useEffect(() => {
                       setLiveFilter={setLiveFilter}
                       liveRadioMode={liveRadioMode}
                       setLiveRadioMode={setLiveRadioMode}
+                      selectedExchanges={selectedExchanges}
+                      setSelectedExchanges={setSelectedExchanges}
+                      selectedClients={selectedClients}
+                      setSelectedClients={setSelectedClients}
+                      clientsForFilter={clientsForFilter}
                       signalToggleAll={signalToggleAll}
                       setSignalToggleAll={setSignalToggleAll}
                       machineToggleAll={machineToggleAll}

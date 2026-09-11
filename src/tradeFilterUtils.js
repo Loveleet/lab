@@ -46,6 +46,28 @@ export function getTradePl(trade) {
   return Number.isNaN(pl) ? 0 : pl;
 }
 
+export function tradeClientId(trade) {
+  try {
+    const n = parseInt(trade?.client_id ?? trade?.clientId ?? 0, 10);
+    return Number.isFinite(n) ? n : 0;
+  } catch (_) {
+    return 0;
+  }
+}
+
+export function tradeClientName(trade) {
+  const name = String(trade?.client_name || trade?.clientName || "").trim();
+  const id = tradeClientId(trade);
+  if (name) return name;
+  if (id > 0) return `Client ${id}`;
+  return "";
+}
+
+export function tradeVenue(trade) {
+  const raw = String(trade?.exchange || trade?.Exchange || "binance").trim().toLowerCase();
+  return raw === "delta" ? "delta" : "binance";
+}
+
 export function isHedgeClosedTrade(trade) {
   return isClosedTradeType(trade) && getTradePl(trade) < 0;
 }
