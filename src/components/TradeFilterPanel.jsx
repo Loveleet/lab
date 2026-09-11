@@ -219,7 +219,36 @@ const TradeFilterPanel = ({
         </div>
       </div>
       <div className="min-w-0 h-full xl:col-start-1 xl:row-start-2 bg-gradient-to-br from-cyan-50 via-white to-cyan-100 dark:from-cyan-950 dark:via-gray-900 dark:to-cyan-900 rounded-2xl shadow-lg border border-cyan-200 dark:border-cyan-800 p-4 gap-2">
-        {cardHeader("🏦", "Exchange", "text-cyan-700 dark:text-cyan-200", null, null)}
+        {cardHeader(
+          "🏦",
+          "Exchange",
+          "text-cyan-700 dark:text-cyan-200",
+          null,
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className="text-xs font-semibold px-2 py-1 rounded bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100"
+              onClick={() => {
+                const updated = { binance: true, delta: true };
+                setSelectedExchanges(updated);
+                localStorage.setItem("selectedExchanges", JSON.stringify(updated));
+              }}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className="text-xs font-semibold px-2 py-1 rounded bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100"
+              onClick={() => {
+                const updated = { binance: false, delta: false };
+                setSelectedExchanges(updated);
+                localStorage.setItem("selectedExchanges", JSON.stringify(updated));
+              }}
+            >
+              Uncheck
+            </button>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {["binance", "delta"].map((ex) => (
             <label key={ex} className="flex items-center space-x-2 bg-white dark:bg-gray-800 rounded px-2 py-1 shadow-sm border border-gray-200 dark:border-gray-700">
@@ -241,7 +270,42 @@ const TradeFilterPanel = ({
         </div>
       </div>
       <div className="min-w-0 h-full xl:col-start-2 xl:row-start-2 bg-gradient-to-br from-orange-50 via-white to-orange-100 dark:from-orange-950 dark:via-gray-900 dark:to-orange-900 rounded-2xl shadow-lg border border-orange-200 dark:border-orange-800 p-4 gap-2">
-        {cardHeader("👤", "Client", "text-orange-700 dark:text-orange-200", null, null)}
+        {cardHeader(
+          "👤",
+          "Client",
+          "text-orange-700 dark:text-orange-200",
+          null,
+          <div className="flex gap-1">
+            <button
+              type="button"
+              className="text-xs font-semibold px-2 py-1 rounded bg-green-200 dark:bg-green-800 text-green-900 dark:text-green-100"
+              onClick={() => {
+                setSelectedClients((prev) => {
+                  const updated = { ...(prev || {}) };
+                  (clientsForFilter || []).forEach((c) => { updated[c.id] = true; });
+                  localStorage.setItem("selectedClients", JSON.stringify(updated));
+                  return updated;
+                });
+              }}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className="text-xs font-semibold px-2 py-1 rounded bg-red-200 dark:bg-red-800 text-red-900 dark:text-red-100"
+              onClick={() => {
+                setSelectedClients((prev) => {
+                  const updated = { ...(prev || {}) };
+                  (clientsForFilter || []).forEach((c) => { updated[c.id] = false; });
+                  localStorage.setItem("selectedClients", JSON.stringify(updated));
+                  return updated;
+                });
+              }}
+            >
+              Uncheck
+            </button>
+          </div>
+        )}
         <div className="flex flex-wrap gap-2">
           {(clientsForFilter || []).length === 0 && (
             <span className="text-xs text-gray-500">Click Refresh exchanges</span>

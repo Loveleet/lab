@@ -525,7 +525,12 @@ const [liveFilter, setLiveFilter] = useState(() => {
 const [selectedExchanges, setSelectedExchanges] = useState(() => {
   try {
     const saved = localStorage.getItem("selectedExchanges");
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && (parsed.binance || parsed.delta)) {
+        return { binance: !!parsed.binance, delta: !!parsed.delta };
+      }
+    }
   } catch (_) {}
   return { binance: true, delta: true };
 });
@@ -1033,53 +1038,60 @@ const filteredTradeData = useMemo(() => {
     if (dayViewActive && !activeViewDay) return false;
 
     if (!includeMinClose && trade.min_close === "Min_close") return false;
-    const isSignalSelected = isSelected(selectedSignals, normalizeSignalFrom(tradeSignalFrom(trade)));
+    const signalKey = normalizeSignalFrom(tradeSignalFrom(trade));
+    const isExchangeSync = String(signalKey).toLowerCase() === "exchange_sync";
+    const isSignalSelected = isSelected(selectedSignals, signalKey);
     const isMachineSelected = isSelected(selectedMachines, toMachineKey(trade.machineid));
     const isIntervalSelected = isSelected(selectedIntervals, trade.interval);
     const isActionSelected = isSelected(selectedActions, trade.action);
-    // Filter by LIVE (exchange_sync): treat trades with signalfrom === 'exchange_sync' as live
-    const isLive = String(trade.signalfrom || "").toLowerCase() === "exchange_sync";
-    if (liveFilter.true && liveFilter.false) {
-      // Both selected: show all
-    } else if (liveFilter.true && !isLive) {
-      return false; // Only true selected, but trade is false
-    } else if (liveFilter.false && isLive) {
-      return false; // Only false selected, but trade is true
-    } else if (!liveFilter.true && !liveFilter.false) {
-      return false; // Neither selected: show nothing
-    }
-    if (!selectedExchanges[tradeVenue(trade)]) {
+    if (!(isSignalSelected && isMachineSelected && isIntervalSelected && isActionSelected)) {
       return false;
     }
-    const cid = tradeClientId(trade);
-    const clientKeys = Object.keys(selectedClients || {});
-    if (clientKeys.length) {
-      if (cid <= 0) return false;
-      if (selectedClients[String(cid)] !== true) return false;
+
+    // Client / exchange / LIVE apply only to exchange_sync.
+    // composite_4h_native (and other operator signals) always show when their Signal box is on.
+    if (isExchangeSync) {
+      const isLive = true;
+      if (liveFilter.true && liveFilter.false) {
+        // both
+      } else if (liveFilter.true && !isLive) {
+        return false;
+      } else if (liveFilter.false && isLive) {
+        return false;
+      } else if (!liveFilter.true && !liveFilter.false) {
+        return false;
+      }
+      const anyExchangeOn = Boolean(selectedExchanges?.binance || selectedExchanges?.delta);
+      if (anyExchangeOn && !selectedExchanges[tradeVenue(trade)]) {
+        return false;
+      }
+      const cid = tradeClientId(trade);
+      const enabledClients = Object.entries(selectedClients || {})
+        .filter(([, on]) => on === true)
+        .map(([id]) => String(id));
+      if (enabledClients.length && cid > 0 && !enabledClients.includes(String(cid))) {
+        return false;
+      }
     }
 
-    // Single-day view: closed on that day; running only when that day is today
+    const candleTime = trade.candel_time || trade.candle_time || trade.created_at;
     if (activeViewDay) {
       if (!matchesSingleDayView(trade, activeViewDay)) return false;
     } else if (!dayViewActive && (fromDate || toDate)) {
-      if (!trade.candel_time) return false;
-      const tradeTime = moment(trade.candel_time);
+      if (!candleTime) return false;
+      const tradeTime = moment(candleTime);
       const isDateInRange =
         (!fromDate || tradeTime.isSameOrAfter(fromDate)) &&
         (!toDate || tradeTime.isSameOrBefore(toDate));
       if (!isDateInRange) return false;
     }
 
-    if (!activeViewDay && !trade.candel_time) return false;
-    if (activeViewDay && !trade.candel_time) {
+    if (!activeViewDay && !candleTime) return false;
+    if (activeViewDay && !candleTime) {
       const type = getTradeType(trade);
       const needsCandle = !isRunningLikeTrade(trade) && !isClosedTradeType(trade);
       if (needsCandle) return false;
       if (isClosedTradeType(trade) && !getTradeCloseMoment(trade)) return false;
-    }
-
-    if (!(isSignalSelected && isMachineSelected && isIntervalSelected && isActionSelected)) {
-      return false;
     }
 
     return true;
