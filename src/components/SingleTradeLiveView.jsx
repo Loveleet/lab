@@ -3229,13 +3229,22 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   // Map (symbol_positionSide) -> stopPrice from open orders (show 0 if no stop)
   const openOrdersStopPriceMap = useMemo(() => {
     const map = new Map();
+    const canon = (s) => {
+      const u = String(s || "").toUpperCase().replace(/[-_/]/g, "");
+      if (u.endsWith("USDT")) return u;
+      if (u.endsWith("USD")) return `${u}T`;
+      return u;
+    };
     const orders = openOrdersData?.orders || [];
     for (const o of orders) {
-      const sym = (o.symbol || "").toString().toUpperCase();
+      const sym = canon(o.symbol);
       const ps = (o.positionSide || "BOTH").toString().toUpperCase();
-      const key = `${sym}_${ps}`;
       const sp = o.stopPrice != null && o.stopPrice !== "" ? parseFloat(o.stopPrice) : 0;
-      if (!map.has(key) || (Number.isFinite(sp) && sp > 0)) map.set(key, Number.isFinite(sp) ? sp : 0);
+      const val = Number.isFinite(sp) ? sp : 0;
+      for (const side of [ps, "BOTH"]) {
+        const key = `${sym}_${side}`;
+        if (!map.has(key) || val > 0) map.set(key, val);
+      }
     }
     return map;
   }, [openOrdersData]);
@@ -4336,8 +4345,14 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                 const pl = parseFloat(pos.unRealizedProfit || 0);
                                 const plClass = key === "unRealizedProfit" ? (pl < 0 ? "text-red-600 font-medium" : "text-green-600 font-medium") : "";
                                 const isStopPriceCol = key === "stopPrice";
+                                const posSymKey = (() => {
+                                  const u = String(pos.symbol || "").toUpperCase().replace(/[-_/]/g, "");
+                                  return u.endsWith("USDT") ? u : (u.endsWith("USD") ? `${u}T` : u);
+                                })();
                                 const cellVal = isStopPriceCol
-                                  ? (openOrdersStopPriceMap.get(`${(pos.symbol || "").toString().toUpperCase()}_${(pos.positionSide || "BOTH").toString().toUpperCase()}`) ?? 0)
+                                  ? (openOrdersStopPriceMap.get(`${posSymKey}_${(pos.positionSide || "BOTH").toString().toUpperCase()}`)
+                                    ?? openOrdersStopPriceMap.get(`${posSymKey}_BOTH`)
+                                    ?? 0)
                                   : pos[key];
                                 const displayVal = isStopPriceCol
                                   ? (typeof cellVal === "number" && Number.isFinite(cellVal) ? Number(cellVal).toFixed(4) : "0")
