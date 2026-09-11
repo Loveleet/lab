@@ -9,6 +9,8 @@ const BinanceIncomeHistoryPage = () => {
 
   const [filters, setFilters] = useState({
     symbol: "",
+    exchange: "",
+    client: "",
     minPL: "",
     dateFrom: "",
     dateTo: "",
@@ -57,6 +59,30 @@ const BinanceIncomeHistoryPage = () => {
     return Array.from(set).sort();
   }, [history]);
 
+  const exchanges = useMemo(() => {
+    const set = new Set();
+    history.forEach((row) => {
+      const ex = (row.exchange || "").toLowerCase();
+      if (ex) set.add(ex);
+    });
+    return Array.from(set).sort();
+  }, [history]);
+
+  const clients = useMemo(() => {
+    const map = new Map();
+    history.forEach((row) => {
+      const id = String(row.client_id ?? "");
+      if (!id) return;
+      if (!map.has(id)) map.set(id, row.client_name || `Client ${id}`);
+    });
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [history]);
+
+  const rowGroupKey = (row) =>
+    `${row.client_id ?? 0}|${(row.exchange || "binance").toLowerCase()}|${(row.symbol || "").toUpperCase()}`;
+
   const dateRangeBounds = useMemo(() => {
     let fromMs = null;
     let toMs = null;
@@ -85,26 +111,34 @@ const BinanceIncomeHistoryPage = () => {
   }, [history, dateRangeBounds]);
 
   const pairSummaries = useMemo(() => {
-    const bySymbol = new Map();
+    const byKey = new Map();
     historyInDateRange.forEach((row) => {
       if (!row) return;
       const symbol = (row.symbol || "").toUpperCase();
       if (!symbol) return;
+      const exchange = (row.exchange || "binance").toLowerCase();
+      const clientId = row.client_id ?? 0;
+      const clientName = row.client_name || `Client ${clientId}`;
+      const key = `${clientId}|${exchange}|${symbol}`;
       const incomeType = (row.income_type || "").toUpperCase();
       const rawIncome =
         typeof row.income === "number" ? row.income : parseFloat(row.income || "0");
       const incomeVal = Number.isFinite(rawIncome) ? rawIncome : 0;
       const timeVal = row.time ? new Date(row.time) : null;
 
-      if (!bySymbol.has(symbol)) {
-        bySymbol.set(symbol, {
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          key,
           symbol,
+          exchange,
+          clientId,
+          clientName,
           profit: 0,
           commission: 0,
           lastTime: null,
         });
       }
-      const acc = bySymbol.get(symbol);
+      const acc = byKey.get(key);
       if (incomeType === "REALIZED_PNL") {
         acc.profit += incomeVal;
       } else if (incomeType === "COMMISSION") {
@@ -117,7 +151,7 @@ const BinanceIncomeHistoryPage = () => {
       }
     });
 
-    const out = Array.from(bySymbol.values()).map((s) => ({
+    const out = Array.from(byKey.values()).map((s) => ({
       ...s,
       total: s.profit + s.commission,
     }));
@@ -136,7 +170,7 @@ const BinanceIncomeHistoryPage = () => {
     const set = new Set();
     history.forEach((row) => {
       const symbol = (row.symbol || "").toUpperCase();
-      if (symbol) set.add(symbol);
+      if (symbol) set.add(rowGroupKey(row));
     });
     return set.size;
   }, [history]);
@@ -145,6 +179,12 @@ const BinanceIncomeHistoryPage = () => {
     const minPLNum = parseFloat(filters.minPL);
     return pairSummaries.filter((s) => {
       if (filters.symbol && s.symbol !== filters.symbol.toUpperCase()) {
+        return false;
+      }
+      if (filters.exchange && s.exchange !== filters.exchange.toLowerCase()) {
+        return false;
+      }
+      if (filters.client && String(s.clientId) !== String(filters.client)) {
         return false;
       }
       if (!Number.isNaN(minPLNum) && s.total <= minPLNum) {
@@ -157,7 +197,7 @@ const BinanceIncomeHistoryPage = () => {
       if (filters.profitFilter === "has_profit" && profit === 0) return false;
       return true;
     });
-  }, [pairSummaries, filters.symbol, filters.minPL, filters.profitFilter]);
+  }, [pairSummaries, filters.symbol, filters.exchange, filters.client, filters.minPL, filters.profitFilter]);
 
   const summaryTotals = useMemo(() => {
     return filteredSummaries.reduce(
@@ -175,7 +215,7 @@ const BinanceIncomeHistoryPage = () => {
   const detailRows = useMemo(() => {
     if (!selectedPair) return [];
     return historyInDateRange
-      .filter((row) => (row.symbol || "").toUpperCase() === selectedPair.toUpperCase())
+      .filter((row) => rowGroupKey(row) === selectedPair)
       .sort((a, b) => {
         const ta = a.time ? new Date(a.time).getTime() : 0;
         const tb = b.time ? new Date(b.time).getTime() : 0;
@@ -189,7 +229,7 @@ const BinanceIncomeHistoryPage = () => {
       [field]: value,
     }));
     // If user changes the pair from dropdown, hide details
-    if (field === "symbol") {
+    if (field === "symbol" || field === "exchange" || field === "client") {
       setSelectedPair(null);
     }
   };
@@ -200,10 +240,10 @@ const BinanceIncomeHistoryPage = () => {
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-4">
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-gray-900 dark:text-white">
-              Binance Trade History
+              Trade History
             </h1>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              Combined Binance income history (REALIZED_PNL + COMMISSION) with filters.
+              All clients — Binance and/or Delta (REALIZED_PNL + COMMISSION).
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -213,13 +253,15 @@ const BinanceIncomeHistoryPage = () => {
               className="px-3 py-2 rounded-lg text-sm font-medium bg-teal-600 text-white hover:bg-teal-700"
               disabled={loading}
             >
-              {loading ? "Syncing..." : "Sync from Binance"}
+              {loading ? "Syncing..." : "Sync from exchanges"}
             </button>
             <button
               type="button"
               onClick={() =>
                 setFilters({
                   symbol: "",
+                  exchange: "",
+                  client: "",
                   minPL: "",
                   dateFrom: "",
                   dateTo: "",
@@ -235,7 +277,7 @@ const BinanceIncomeHistoryPage = () => {
 
         {syncInfo && (
           <div className="mb-4 px-3 py-2 rounded-md bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700 text-xs text-emerald-800 dark:text-emerald-100">
-            Synced from Binance at{" "}
+            Synced from client exchanges at{" "}
             <span className="font-semibold">
               {new Date(syncInfo.at).toLocaleString()}
             </span>
@@ -246,7 +288,41 @@ const BinanceIncomeHistoryPage = () => {
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-9 gap-3 mb-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
+              Client
+            </label>
+            <select
+              className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-sm text-gray-900 dark:text-gray-100"
+              value={filters.client}
+              onChange={(e) => handleFilterChange("client", e.target.value)}
+            >
+              <option value="">All clients</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
+              Exchange
+            </label>
+            <select
+              className="w-full px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#111827] text-sm text-gray-900 dark:text-gray-100"
+              value={filters.exchange}
+              onChange={(e) => handleFilterChange("exchange", e.target.value)}
+            >
+              <option value="">All</option>
+              {exchanges.map((ex) => (
+                <option key={ex} value={ex}>
+                  {ex}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-xs font-semibold text-gray-600 dark:text-gray-300 mb-1">
               Pair
@@ -348,6 +424,12 @@ const BinanceIncomeHistoryPage = () => {
                       Time
                     </th>
                     <th className="sticky top-0 z-20 px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
+                      Client
+                    </th>
+                    <th className="sticky top-0 z-20 px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
+                      Exchange
+                    </th>
+                    <th className="sticky top-0 z-20 px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
                       Pair
                     </th>
                     <th className="sticky top-0 z-20 px-3 py-2 text-right font-semibold text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-[#020617] border-b border-gray-200 dark:border-gray-700">
@@ -377,18 +459,26 @@ const BinanceIncomeHistoryPage = () => {
                       : "";
                     return (
                       <tr
-                        key={row.symbol}
+                        key={row.key}
                         className="cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-900"
                         onClick={() => {
-                          setSelectedPair(row.symbol);
+                          setSelectedPair(row.key);
                           setFilters((prev) => ({
                             ...prev,
                             symbol: row.symbol,
+                            exchange: row.exchange,
+                            client: String(row.clientId),
                           }));
                         }}
                       >
                         <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-200">
                           {timeText}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-200">
+                          {row.clientName}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-200">
+                          {row.exchange}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap text-xs font-semibold text-gray-900 dark:text-gray-100">
                           {row.symbol}
@@ -409,7 +499,7 @@ const BinanceIncomeHistoryPage = () => {
                     <tr>
                       <td
                         className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400"
-                        colSpan={5}
+                        colSpan={7}
                       >
                         No pairs match the current filters.
                       </td>
@@ -421,6 +511,12 @@ const BinanceIncomeHistoryPage = () => {
                     <tr className="bg-gray-100 dark:bg-[#0f172a] border-t-2 border-gray-300 dark:border-gray-600">
                       <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
                         Total count: {summaryTotals.count}
+                      </td>
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
+                        —
+                      </td>
+                      <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
+                        —
                       </td>
                       <td className="sticky bottom-0 z-10 px-3 py-2.5 whitespace-nowrap text-xs font-bold text-gray-800 dark:text-gray-100 bg-gray-100 dark:bg-[#0f172a]">
                         —
@@ -453,7 +549,9 @@ const BinanceIncomeHistoryPage = () => {
             <div className="mt-6">
               <h2 className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">
                 {selectedPair
-                  ? `Detail history for ${selectedPair}`
+                  ? `Detail history for ${
+                      filteredSummaries.find((r) => r.key === selectedPair)?.symbol || selectedPair
+                    }`
                   : "Click a pair above to view detailed history"}
               </h2>
               {selectedPair && (
@@ -463,6 +561,9 @@ const BinanceIncomeHistoryPage = () => {
                       <tr>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
                           Time
+                        </th>
+                        <th className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
+                          Exchange
                         </th>
                         <th className="px-3 py-2 text-left font-semibold text-gray-700 dark:text-gray-200">
                           Income Type
@@ -500,9 +601,12 @@ const BinanceIncomeHistoryPage = () => {
                           ? new Date(row.time).toLocaleString()
                           : "";
                         return (
-                          <tr key={`${row.tran_id || idx}-${row.income_type || ""}`}>
+                          <tr key={`${row.client_id}-${row.exchange}-${row.tran_id || idx}-${row.income_type || ""}`}>
                             <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-200">
                               {timeText}
+                            </td>
+                            <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-200">
+                              {row.exchange || "-"}
                             </td>
                             <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-700 dark:text-gray-200">
                               {row.income_type || "-"}
@@ -533,7 +637,7 @@ const BinanceIncomeHistoryPage = () => {
                         <tr>
                           <td
                             className="px-3 py-6 text-center text-sm text-gray-500 dark:text-gray-400"
-                            colSpan={7}
+                            colSpan={8}
                           >
                             No detail rows for this pair.
                           </td>

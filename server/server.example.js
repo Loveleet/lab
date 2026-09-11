@@ -2181,7 +2181,7 @@ app.get("/api/open-orders", proxyGetToPython);
 app.get("/api/futures-balance", proxyGetToPython);
 app.get("/api/income-history", (req, res) => {
   const sync = String(req.query.sync || "").toLowerCase();
-  const ms = ["1", "true", "yes"].includes(sync) ? 120000 : 30000;
+  const ms = ["1", "true", "yes"].includes(sync) ? 180000 : 30000;
   return proxyGetToPython(req, res, ms);
 });
 app.get("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));

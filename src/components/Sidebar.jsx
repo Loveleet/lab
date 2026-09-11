@@ -66,7 +66,7 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
           <li>
             <SidebarItem 
               icon={SquareStack} 
-              text="Binance Trade History" 
+              text="Trade History" 
               isOpen={isOpen} 
               to="/income-history"
               target="_blank"
