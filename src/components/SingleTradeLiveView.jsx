@@ -5,6 +5,7 @@ import { formatTradeData } from "./TableView";
 import { LogoutButton, UserEmailDisplay } from "../auth";
 import { API_BASE_URL, api, apiFetch, fetchPythonApi } from "../config";
 import { getRobustSymbol, getSymbolFromUniqueId } from "../tradeSymbolUtils";
+import { pythonAccountQuery } from "../tradeFilterUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
@@ -2877,6 +2878,10 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   // CalculateSignals on first open, then only when the user clicks Calculate Signals
   const tradePair = rawTrade?.pair || stripHtml(row.Pair) || getSymbolFromUniqueId(uniqueId) || "";
   const signalSymbol = (tradePair && getRobustSymbol(tradePair)) || getSymbolFromUniqueId(uniqueId) || "BTCUSDT";
+  const accountQs = useMemo(
+    () => pythonAccountQuery(rawTrade || { exchange: formattedRow?.Exchange, client_id: formattedRow?.client_id }),
+    [rawTrade, formattedRow]
+  );
   const [signalsData, setSignalsData] = useState(null);
   const [signalsError, setSignalsError] = useState(null);
   const [signalsLoading, setSignalsLoading] = useState(true);
@@ -2990,7 +2995,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const fetchOpenPosition = async () => {
       setBinanceLoading(true);
       try {
-        const res = await fetchPythonApi(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}`);
+        const res = await fetchPythonApi(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}${accountQs}`);
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (data?.ok) setExchangePositionData(data);
@@ -3005,7 +3010,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => {
       cancelled = true;
     };
-  }, [signalSymbol, binanceDataRefreshKey]);
+  }, [signalSymbol, accountQs, binanceDataRefreshKey]);
 
   // Open orders (for stop price per position from main_binance um_get_open_orders)
   useEffect(() => {
@@ -3017,7 +3022,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     let cancelled = false;
     const fetchOpenOrders = async () => {
       try {
-        const res = await fetchPythonApi(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}`);
+        const res = await fetchPythonApi(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}${accountQs}`);
         const data = await res.json().catch(() => ({}));
         if (!cancelled) setOpenOrdersData(data?.ok ? data : { orders: [] });
       } catch {
@@ -3028,7 +3033,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => {
       cancelled = true;
     };
-  }, [signalSymbol, binanceDataRefreshKey]);
+  }, [signalSymbol, accountQs, binanceDataRefreshKey]);
 
   // Fetch futures balance on first open, then only when user clicks Refresh Binance
   useEffect(() => {
@@ -3036,7 +3041,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     let cancelled = false;
     const fetchFuturesBalance = async () => {
       try {
-        const res = await fetchPythonApi("/api/futures-balance");
+        const res = await fetchPythonApi(`/api/futures-balance?${accountQs.replace(/^&/, "")}`);
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (data?.ok && typeof data?.availableBalance === "number") setFuturesBalance(data.availableBalance);
@@ -3049,7 +3054,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => {
       cancelled = true;
     };
-  }, [binanceDataRefreshKey]);
+  }, [binanceDataRefreshKey, accountQs]);
 
   // EMA trends (Last Update Time, EMA 1m, 5m, 15m, 1h, 4h, 1d from pairstatus)
   useEffect(() => {

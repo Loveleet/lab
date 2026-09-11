@@ -247,6 +247,7 @@ const App = () => {
   const [tradeData, setTradeData] = useState([]);
   const [binanceRefreshNonce, setBinanceRefreshNonce] = useState(0);
   const [binanceRefreshing, setBinanceRefreshing] = useState(false);
+  const [exchangeSyncNotice, setExchangeSyncNotice] = useState("");
   const [closedCacheProgress, setClosedCacheProgress] = useState(null);
   const [closedCacheStats, setClosedCacheStats] = useState(null);
   const forceFullClosedRef = useRef(false);
@@ -816,16 +817,22 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
   const handleRefreshBinance = useCallback(async () => {
     if (binanceRefreshing) return;
     setBinanceRefreshing(true);
+    setExchangeSyncNotice("");
     try {
       const res = await apiFetch("/api/sync-open-positions", { method: "POST" });
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        console.warn("[Refresh Binance] sync failed:", body?.message || res.statusText);
+        setExchangeSyncNotice(body.message || body.error || res.statusText || "Sync failed");
+      } else {
+        const n = body.positions_count ?? 0;
+        const ins = body.inserted_count ?? 0;
+        const extra = (body.errors && body.errors.length) ? ` (${body.errors.length} errors)` : "";
+        setExchangeSyncNotice(`${body.message || "Synced"} | open=${n} inserted=${ins}${extra}`);
       }
       await refreshAllData();
       setBinanceRefreshNonce((n) => n + 1);
     } catch (e) {
-      console.warn("[Refresh Binance]", e?.message || e);
+      setExchangeSyncNotice(e?.message || String(e));
     } finally {
       setBinanceRefreshing(false);
     }
@@ -2564,6 +2571,9 @@ useEffect(() => {
                 >
                   {binanceRefreshing ? "Syncing…" : "Refresh exchanges"}
                 </button>
+                {exchangeSyncNotice ? (
+                  <span className="text-[10px] text-amber-300 max-w-[14rem] leading-tight">{exchangeSyncNotice}</span>
+                ) : null}
                 <div className="flex flex-col gap-1 min-w-[9rem] max-w-[11rem]">
                   {closedCacheProgress && (
                     <div className="text-[10px] text-gray-600 dark:text-gray-400">

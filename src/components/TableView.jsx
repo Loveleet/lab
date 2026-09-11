@@ -33,7 +33,7 @@ const parseBoolean = (value) => {
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import moment from "moment";
-import { isHedgeClosedTrade, isDirectClosedTrade, parseHedge } from "../tradeFilterUtils";
+import { isHedgeClosedTrade, isDirectClosedTrade, parseHedge, tradeClientName, tradeVenue, pythonAccountQuery, overlayPositionKey } from "../tradeFilterUtils";
 
 import * as XLSX from "xlsx";
 import { Home, BarChart, FileText, Menu, ChevronDown, ChevronRight } from "lucide-react";
@@ -86,6 +86,8 @@ const formatTradeData = (trade, index) => ({
     "M.Id": trade.machineid || "N/A",
     "📋": "copy", // Copy button column
     Unique_ID: trade.unique_id || "N/A",
+    Exchange: tradeVenue(trade),
+    Client: tradeClientName(trade) || "N/A",
     macd_action: trade.macd_action ?? trade.MACD_Action ?? trade.macdAction ?? "N/A",
     "Candle_🕒": formatDateTime(trade.candel_time),
     "Fetcher_🕒": formatDateTime(trade.fetcher_trade_time),
@@ -772,13 +774,17 @@ useEffect(() => {
     lastBinanceNonceRef.current = binanceRefreshNonce;
     const isExistInExchange = (t) =>
       t.exist_in_exchange === true || t.exist_in_exchange === "true" || t.exist_in_exchange === 1;
-    const symbols = [...new Set(
-      filteredRawTrades
-        .filter(isExistInExchange)
-        .map((t) => getRobustSymbol(t.pair || t.symbol))
-        .filter(Boolean)
-    )];
-    if (!symbols.length) {
+    const seen = new Set();
+    const jobs = [];
+    for (const t of filteredRawTrades.filter(isExistInExchange)) {
+      const sym = getRobustSymbol(t.pair || t.symbol);
+      if (!sym) continue;
+      const key = overlayPositionKey(t, sym);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      jobs.push({ key, sym, qs: pythonAccountQuery(t) });
+    }
+    if (!jobs.length) {
       setExchangeDataBySymbol({});
       return;
     }
@@ -786,14 +792,14 @@ useEffect(() => {
     const fetchAll = async () => {
       setBinancePositionsLoading(true);
       const next = {};
-      for (const sym of symbols) {
+      for (const job of jobs) {
         if (cancelled) return;
         try {
-          const res = await apiFetch(api(`/api/open-position?symbol=${encodeURIComponent(sym)}`));
+          const res = await apiFetch(api(`/api/open-position?symbol=${encodeURIComponent(job.sym)}${job.qs}`));
           const data = await res.json().catch(() => ({}));
-          next[sym] = data;
+          next[job.key] = data;
         } catch {
-          next[sym] = { ok: false, error: "Network error" };
+          next[job.key] = { ok: false, error: "Network error" };
         }
       }
       if (!cancelled) {
@@ -1395,7 +1401,7 @@ return (
               const raw = getRawTrade(item);
               const hasExchange = raw && (raw.exist_in_exchange === true || raw.exist_in_exchange === "true" || raw.exist_in_exchange === 1);
               const symbol = hasExchange ? getRobustSymbol(raw.pair || raw.symbol) : "";
-              const exData = symbol ? exchangeDataBySymbol[symbol] : null;
+              const exData = symbol ? exchangeDataBySymbol[overlayPositionKey(raw, symbol)] : null;
               const expandKey = stripForCompare(item.Unique_ID) || `row-${rowIndex}`;
               const isExpanded = expandedExchangeRow === expandKey;
               return (
@@ -1426,7 +1432,7 @@ return (
                             try {
                               localStorage.setItem(stateKey, JSON.stringify({
                                 formattedRow: item,
-                                rawTrade: null,
+                                rawTrade: getRawTrade(item),
                                 uniqueId: uid || "",
                               }));
                             } catch (_) {}

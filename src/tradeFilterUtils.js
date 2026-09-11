@@ -68,6 +68,20 @@ export function tradeVenue(trade) {
   return raw === "delta" ? "delta" : "binance";
 }
 
+export function pythonAccountQuery(trade) {
+  const params = new URLSearchParams();
+  const cid = tradeClientId(trade);
+  const venue = tradeVenue(trade);
+  if (cid > 0) params.set("client_id", String(cid));
+  if (venue) params.set("exchange", venue);
+  const q = params.toString();
+  return q ? `&${q}` : "";
+}
+
+export function overlayPositionKey(trade, symbol) {
+  return `${tradeClientId(trade)}|${tradeVenue(trade)}|${symbol || ""}`;
+}
+
 export function isHedgeClosedTrade(trade) {
   return isClosedTradeType(trade) && getTradePl(trade) < 0;
 }

@@ -2184,8 +2184,8 @@ app.get("/api/income-history", (req, res) => {
   const ms = ["1", "true", "yes"].includes(sync) ? 180000 : 30000;
   return proxyGetToPython(req, res, ms);
 });
-app.get("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
-app.post("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 120000));
+app.get("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 180000));
+app.post("/api/sync-open-positions", (req, res) => proxyPostToPython(req, res, 180000));
 
 // ✅ Proxy to Python CalculateSignals API (run python/api_signals.py; set PYTHON_SIGNALS_URL=http://localhost:5001)
 app.post("/api/calculate-signals", async (req, res) => {
