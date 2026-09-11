@@ -287,13 +287,21 @@ function DroppableLabelList({ items, moveLabel, renderRow, activeJsonLabels, set
 }
 
 // When opening via stateKey (new tab), localStorage might not be ready yet. Retry briefly.
-function LiveTradeViewFromStateKey({ stateKeyFromUrl }) {
-  const mergeUniqueId = (formattedRow, rawTrade, uniqueId) => {
+function LiveTradeViewFromStateKey({ stateKeyFromUrl, clientId, exchange }) {
+  const mergeUniqueId = (formattedRow, rawTrade, uniqueId, extra = {}) => {
     const uid = String(uniqueId || "").trim();
-    if (!uid) return { formattedRow, rawTrade };
-    const nextFormatted = formattedRow ? { ...formattedRow, Unique_ID: uid } : formattedRow;
-    const nextRaw = rawTrade ? { ...rawTrade, unique_id: rawTrade.unique_id || uid } : rawTrade;
-    return { formattedRow: nextFormatted, rawTrade: nextRaw };
+    const cid = extra.client_id || rawTrade?.client_id || formattedRow?.client_id || clientId;
+    const venue = extra.exchange || rawTrade?.exchange || formattedRow?.Exchange || exchange;
+    const nextFormatted = formattedRow
+      ? { ...formattedRow, ...(uid ? { Unique_ID: uid } : {}), ...(cid ? { client_id: cid } : {}), ...(venue ? { Exchange: venue } : {}) }
+      : formattedRow;
+    const nextRaw = {
+      ...(rawTrade || {}),
+      ...(uid ? { unique_id: (rawTrade && rawTrade.unique_id) || uid } : {}),
+      ...(cid ? { client_id: cid } : {}),
+      ...(venue ? { exchange: venue } : {}),
+    };
+    return { formattedRow: nextFormatted, rawTrade: Object.keys(nextRaw).length ? nextRaw : rawTrade };
   };
 
   const [result, setResult] = useState(() => {
@@ -302,7 +310,7 @@ function LiveTradeViewFromStateKey({ stateKeyFromUrl }) {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed.formattedRow) {
-          const merged = mergeUniqueId(parsed.formattedRow, parsed.rawTrade ?? null, parsed.uniqueId);
+          const merged = mergeUniqueId(parsed.formattedRow, parsed.rawTrade ?? null, parsed.uniqueId, parsed);
           return { status: 'ok', formattedRow: merged.formattedRow, rawTrade: merged.rawTrade };
         }
       }
@@ -321,7 +329,7 @@ function LiveTradeViewFromStateKey({ stateKeyFromUrl }) {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed.formattedRow) {
-            const merged = mergeUniqueId(parsed.formattedRow, parsed.rawTrade ?? null, parsed.uniqueId);
+            const merged = mergeUniqueId(parsed.formattedRow, parsed.rawTrade ?? null, parsed.uniqueId, parsed);
             setResult({ status: 'ok', formattedRow: merged.formattedRow, rawTrade: merged.rawTrade });
             return;
           }
@@ -380,7 +388,13 @@ const LiveTradeViewPage = () => {
   }
 
   if (stateKeyFromUrl) {
-    return <LiveTradeViewFromStateKey stateKeyFromUrl={stateKeyFromUrl} />;
+    return (
+      <LiveTradeViewFromStateKey
+        stateKeyFromUrl={stateKeyFromUrl}
+        clientId={query.get("client_id")}
+        exchange={query.get("exchange")}
+      />
+    );
   }
 
   const uid = query.get('uid') || '';

@@ -33,7 +33,7 @@ const parseBoolean = (value) => {
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import moment from "moment";
-import { isHedgeClosedTrade, isDirectClosedTrade, parseHedge, tradeClientName, tradeVenue, pythonAccountQuery, overlayPositionKey } from "../tradeFilterUtils";
+import { isHedgeClosedTrade, isDirectClosedTrade, parseHedge, tradeClientId, tradeClientName, tradeVenue, pythonAccountQuery, overlayPositionKey } from "../tradeFilterUtils";
 
 import * as XLSX from "xlsx";
 import { Home, BarChart, FileText, Menu, ChevronDown, ChevronRight } from "lucide-react";
@@ -88,6 +88,7 @@ const formatTradeData = (trade, index) => ({
     Unique_ID: trade.unique_id || "N/A",
     Exchange: tradeVenue(trade),
     Client: tradeClientName(trade) || "N/A",
+    ...(tradeClientId(trade) > 0 ? { client_id: tradeClientId(trade) } : {}),
     macd_action: trade.macd_action ?? trade.MACD_Action ?? trade.macdAction ?? "N/A",
     "Candle_🕒": formatDateTime(trade.candel_time),
     "Fetcher_🕒": formatDateTime(trade.fetcher_trade_time),
@@ -1428,15 +1429,23 @@ return (
                           type="button"
                           onClick={() => {
                             const uid = stripForCompare(item?.Unique_ID);
+                            const raw = getRawTrade(item);
+                            const cid = tradeClientId(raw || item);
+                            const venue = tradeVenue(raw || item);
                             const stateKey = `liveTradeViewState_${Date.now()}`;
                             try {
                               localStorage.setItem(stateKey, JSON.stringify({
                                 formattedRow: item,
-                                rawTrade: getRawTrade(item),
+                                rawTrade: raw,
                                 uniqueId: uid || "",
+                                client_id: cid || 0,
+                                exchange: venue || "",
                               }));
                             } catch (_) {}
-                            const url = liveTradeViewUrl(`stateKey=${encodeURIComponent(stateKey)}`);
+                            const params = new URLSearchParams({ stateKey });
+                            if (cid > 0) params.set("client_id", String(cid));
+                            if (venue) params.set("exchange", venue);
+                            const url = liveTradeViewUrl(params.toString());
                             window.open(url, "_blank", "noopener,noreferrer");
                           }}
                           className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors"

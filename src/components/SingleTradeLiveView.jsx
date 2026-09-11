@@ -5,7 +5,7 @@ import { formatTradeData } from "./TableView";
 import { LogoutButton, UserEmailDisplay } from "../auth";
 import { API_BASE_URL, api, apiFetch, fetchPythonApi } from "../config";
 import { getRobustSymbol, getSymbolFromUniqueId } from "../tradeSymbolUtils";
-import { pythonAccountQuery } from "../tradeFilterUtils";
+import { pythonAccountQuery, tradeClientId, tradeVenue } from "../tradeFilterUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
@@ -2882,6 +2882,15 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     () => pythonAccountQuery(rawTrade || { exchange: formattedRow?.Exchange, client_id: formattedRow?.client_id }),
     [rawTrade, formattedRow]
   );
+  const accountFields = useMemo(() => {
+    const cid = tradeClientId(rawTrade || formattedRow);
+    const venue = tradeVenue(rawTrade || formattedRow);
+    const out = {};
+    if (cid > 0) out.client_id = cid;
+    if (venue) out.exchange = venue;
+    return out;
+  }, [rawTrade, formattedRow]);
+  const withAccount = useCallback((body) => ({ ...accountFields, ...(body || {}) }), [accountFields]);
   const [signalsData, setSignalsData] = useState(null);
   const [signalsError, setSignalsError] = useState(null);
   const [signalsLoading, setSignalsLoading] = useState(true);
@@ -3262,7 +3271,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     }
     const t = setTimeout(async () => {
       try {
-        const url = api(`/api/quantity-preview?symbol=${encodeURIComponent(addInvestmentPreview.symbol)}&invest=${encodeURIComponent(num)}`);
+        const url = api(`/api/quantity-preview?symbol=${encodeURIComponent(addInvestmentPreview.symbol)}&invest=${encodeURIComponent(num)}${accountQs}`);
         const res = await apiFetch(url);
         const data = await res.json().catch(() => ({}));
         if (data?.ok && data.quantity != null) setAddInvNewQty(data.quantity);
@@ -3272,7 +3281,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       }
     }, 400);
     return () => clearTimeout(t);
-  }, [addInvestmentPreview?.symbol, addInvestmentPreview?.newAmount]);
+  }, [addInvestmentPreview?.symbol, addInvestmentPreview?.newAmount, accountQs]);
 
   useEffect(() => {
     if (fieldOrder && fieldOrder.length) {
@@ -3438,7 +3447,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol, amount, stop_price, position_side: "LONG", password: (password || "").trim() }),
+      body: JSON.stringify(withAccount({ symbol, amount, stop_price, position_side: "LONG", password: (password || "").trim() })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || data?.error || "Execute failed");
@@ -3460,13 +3469,13 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: JSON.stringify(withAccount({
         unique_id: uid || undefined,
         symbol: sym,
         position_side: ["LONG", "SHORT", "BOTH"].includes(position_side) ? position_side : "BOTH",
         quantity: quantity != null && quantity > 0 ? quantity : undefined,
         password: (password || "").trim(),
-      }),
+      })),
     });
     const data = await res.json().catch(() => ({ message: res.statusText }));
     if (!res.ok) throw new Error(data?.message || data?.error || "Close trade failed");
@@ -3488,7 +3497,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       const res = await apiFetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol, position_side, quantity, password: (password || "").trim() }),
+        body: JSON.stringify(withAccount({ symbol, position_side, quantity, password: (password || "").trim() })),
       });
       const data = await res.json().catch(() => ({}));
       if (data?.ok === false) throw new Error(data?.message || "Hedge failed");
@@ -3511,7 +3520,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol, position_side, stop_price, password: (password || "").trim() }),
+      body: JSON.stringify(withAccount({ symbol, position_side, stop_price, password: (password || "").trim() })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || data?.error || "Set stop price failed");
@@ -3531,7 +3540,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol, position_side, amount, password: (password || "").trim() }),
+      body: JSON.stringify(withAccount({ symbol, position_side, amount, password: (password || "").trim() })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || data?.error || "Add investment failed");
@@ -3549,7 +3558,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: sym, password: (password || "").trim() }),
+      body: JSON.stringify(withAccount({ symbol: sym, password: (password || "").trim() })),
     });
     const data = await res.json().catch(() => ({ message: res.statusText }));
     if (!res.ok) throw new Error(data.message || data.error || "Close order failed");
@@ -3571,7 +3580,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const res = await apiFetch(api("/api/partial-close"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbol: sym, quantity: qty, position_side: positionSide, password: (password || "").trim() }),
+      body: JSON.stringify(withAccount({ symbol: sym, quantity: qty, position_side: positionSide, password: (password || "").trim() })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || data.error || "Partial close failed");
@@ -4058,16 +4067,19 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
           if (id === "binanceData") return (
         <section key="binanceData" className="rounded-2xl-xl border border-gray-300 dark:border-gray-700 bg-white dark:bg-[#181a20] overflow-hidden shadow-lg flex-shrink-0 flex flex-col relative">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-2.5 bg-gradient-to-r from-teal-800 to-teal-700 text-white font-semibold flex-shrink-0">
-            <span className="text-sm sm:text-base">Binance Data</span>
+            <span className="text-sm sm:text-base">
+              {accountFields.exchange === "delta" ? "Delta Data" : "Binance Data"}
+              {accountFields.client_id ? ` · client ${accountFields.client_id}` : ""}
+            </span>
             <div className="flex items-center gap-2 flex-wrap">
               <button
                 type="button"
                 onClick={() => setBinanceDataRefreshKey((k) => k + 1)}
                 disabled={binanceLoading}
                 className="px-3 py-1.5 rounded-2xl-lg bg-amber-500 hover:bg-amber-600 text-xs font-semibold shadow-sm border border-amber-300/60 disabled:opacity-50"
-                title="Fetch position, open orders, and balance from Binance. Does not run automatically."
+                title="Fetch position, open orders, and balance for this client/exchange"
               >
-                {binanceLoading ? "Binance…" : "Refresh Binance"}
+                {binanceLoading ? "Loading…" : "Refresh position"}
               </button>
               <span className="text-white/90 text-xs mr-1">Zoom:</span>
               <ZoomControls
