@@ -5,7 +5,7 @@ import { formatTradeData } from "./TableView";
 import { LogoutButton, UserEmailDisplay } from "../auth";
 import { API_BASE_URL, api, apiFetch, fetchPythonApi } from "../config";
 import { getRobustSymbol, getSymbolFromUniqueId } from "../tradeSymbolUtils";
-import { pythonAccountQuery, tradeClientId, tradeVenue } from "../tradeFilterUtils";
+import { tradeClientId, tradeVenue } from "../tradeFilterUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
@@ -2878,10 +2878,6 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   // CalculateSignals on first open, then only when the user clicks Calculate Signals
   const tradePair = rawTrade?.pair || stripHtml(row.Pair) || getSymbolFromUniqueId(uniqueId) || "";
   const signalSymbol = (tradePair && getRobustSymbol(tradePair)) || getSymbolFromUniqueId(uniqueId) || "BTCUSDT";
-  const accountQs = useMemo(
-    () => pythonAccountQuery(rawTrade || { exchange: formattedRow?.Exchange, client_id: formattedRow?.client_id }),
-    [rawTrade, formattedRow]
-  );
   const accountFields = useMemo(() => {
     const cid = tradeClientId(rawTrade || formattedRow);
     const venue = tradeVenue(rawTrade || formattedRow);
@@ -2891,6 +2887,13 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return out;
   }, [rawTrade, formattedRow]);
   const withAccount = useCallback((body) => ({ ...accountFields, ...(body || {}) }), [accountFields]);
+  const accountQs = useMemo(() => {
+    const p = new URLSearchParams();
+    if (accountFields.client_id) p.set("client_id", String(accountFields.client_id));
+    if (accountFields.exchange) p.set("exchange", accountFields.exchange);
+    return p.toString();
+  }, [accountFields]);
+  const accountQsJoin = accountQs ? `&${accountQs}` : "";
   const [signalsData, setSignalsData] = useState(null);
   const [signalsError, setSignalsError] = useState(null);
   const [signalsLoading, setSignalsLoading] = useState(true);
@@ -2945,6 +2948,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   const [exchangePositionData, setExchangePositionData] = useState(null);
   const [openOrdersData, setOpenOrdersData] = useState(null); // { orders: [{ symbol, positionSide, type, stopPrice }] }
   const [futuresBalance, setFuturesBalance] = useState(null); // number = USDT available, null = loading/error
+  const [futuresBalanceMeta, setFuturesBalanceMeta] = useState(null);
   const [binanceDataRefreshKey, setBinanceDataRefreshKey] = useState(1);
   const [binanceLoading, setBinanceLoading] = useState(true);
   const [emaTrends, setEmaTrends] = useState(null);
@@ -3000,11 +3004,13 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       return;
     }
     if (binanceDataRefreshKey === 0) return;
+    const waitForClient = (isExistInExchange || accountFields.exchange === "delta") && !accountFields.client_id;
+    if (waitForClient) return;
     let cancelled = false;
     const fetchOpenPosition = async () => {
       setBinanceLoading(true);
       try {
-        const res = await fetchPythonApi(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}${accountQs}`);
+        const res = await fetchPythonApi(`/api/open-position?symbol=${encodeURIComponent(signalSymbol)}${accountQsJoin}`);
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
         if (data?.ok) setExchangePositionData(data);
@@ -3019,7 +3025,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => {
       cancelled = true;
     };
-  }, [signalSymbol, accountQs, binanceDataRefreshKey]);
+  }, [signalSymbol, accountQsJoin, accountFields.client_id, accountFields.exchange, isExistInExchange, binanceDataRefreshKey]);
 
   // Open orders (for stop price per position from main_binance um_get_open_orders)
   useEffect(() => {
@@ -3028,10 +3034,12 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       return;
     }
     if (binanceDataRefreshKey === 0) return;
+    const waitForClient = (isExistInExchange || accountFields.exchange === "delta") && !accountFields.client_id;
+    if (waitForClient) return;
     let cancelled = false;
     const fetchOpenOrders = async () => {
       try {
-        const res = await fetchPythonApi(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}${accountQs}`);
+        const res = await fetchPythonApi(`/api/open-orders?symbol=${encodeURIComponent(signalSymbol)}${accountQsJoin}`);
         const data = await res.json().catch(() => ({}));
         if (!cancelled) setOpenOrdersData(data?.ok ? data : { orders: [] });
       } catch {
@@ -3042,28 +3050,39 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => {
       cancelled = true;
     };
-  }, [signalSymbol, accountQs, binanceDataRefreshKey]);
+  }, [signalSymbol, accountQsJoin, accountFields.client_id, accountFields.exchange, isExistInExchange, binanceDataRefreshKey]);
 
   // Fetch futures balance on first open, then only when user clicks Refresh Binance
   useEffect(() => {
     if (binanceDataRefreshKey === 0) return;
+    const waitForClient = (isExistInExchange || accountFields.exchange === "delta") && !accountFields.client_id;
+    if (waitForClient) return;
     let cancelled = false;
     const fetchFuturesBalance = async () => {
       try {
-        const res = await fetchPythonApi(`/api/futures-balance?${accountQs.replace(/^&/, "")}`);
+        const res = await fetchPythonApi(`/api/futures-balance${accountQs ? `?${accountQs}` : ""}`);
         const data = await res.json().catch(() => ({}));
         if (cancelled) return;
+        setFuturesBalanceMeta({
+          exchange: data?.exchange,
+          client_id: data?.client_id,
+          house: data?.house,
+          error: data?.ok === false ? (data?.message || "Failed") : "",
+        });
         if (data?.ok && typeof data?.availableBalance === "number") setFuturesBalance(data.availableBalance);
         else setFuturesBalance(null);
       } catch {
-        if (!cancelled) setFuturesBalance(null);
+        if (!cancelled) {
+          setFuturesBalance(null);
+          setFuturesBalanceMeta({ error: "Network error" });
+        }
       }
     };
     fetchFuturesBalance();
     return () => {
       cancelled = true;
     };
-  }, [binanceDataRefreshKey, accountQs]);
+  }, [binanceDataRefreshKey, accountQs, accountFields.client_id, accountFields.exchange, isExistInExchange]);
 
   // EMA trends (Last Update Time, EMA 1m, 5m, 15m, 1h, 4h, 1d from pairstatus)
   useEffect(() => {
@@ -3271,7 +3290,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     }
     const t = setTimeout(async () => {
       try {
-        const url = api(`/api/quantity-preview?symbol=${encodeURIComponent(addInvestmentPreview.symbol)}&invest=${encodeURIComponent(num)}${accountQs}`);
+        const url = api(`/api/quantity-preview?symbol=${encodeURIComponent(addInvestmentPreview.symbol)}&invest=${encodeURIComponent(num)}${accountQsJoin}`);
         const res = await apiFetch(url);
         const data = await res.json().catch(() => ({}));
         if (data?.ok && data.quantity != null) setAddInvNewQty(data.quantity);
@@ -3696,6 +3715,8 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
         <span className="font-semibold text-base sm:text-lg truncate min-w-0">Live Trade — {stripHtml(row.Pair) || "N/A"}</span>
         <span className="font-semibold text-base sm:text-lg truncate min-w-0 text-green-500">
           Exchange Future Balance — {typeof futuresBalance === "number" ? `${Number(futuresBalance).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT` : "—"}
+          {futuresBalanceMeta?.house ? " (house)" : futuresBalanceMeta?.exchange ? ` (${futuresBalanceMeta.exchange}${futuresBalanceMeta.client_id ? ` client ${futuresBalanceMeta.client_id}` : ""})` : ""}
+          {futuresBalanceMeta?.error ? ` — ${futuresBalanceMeta.error}` : ""}
         </span>
         <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
           <UserEmailDisplay />
@@ -4546,7 +4567,12 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                     </table>
                   </div>
                 ) : isExistInExchange && exchangePositionData?.ok ? (
-                  <span className="text-gray-500 dark:text-white text-center">No open position for {signalSymbol}</span>
+                  <span className="text-gray-500 dark:text-white text-center">
+                    No open position for {signalSymbol}
+                    {exchangePositionData?.exchange ? ` on ${exchangePositionData.exchange}` : ""}
+                    {exchangePositionData?.client_id ? ` client ${exchangePositionData.client_id}` : ""}
+                    {exchangePositionData?.error ? ` (${exchangePositionData.error})` : ""}
+                  </span>
                 ) : binanceLoading ? (
                   <span className="text-gray-500 dark:text-white text-center">Loading exchange data…</span>
                 ) : (
