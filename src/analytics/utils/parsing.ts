@@ -191,6 +191,16 @@ export function saveFilterFieldsToStorage(fields: string[]) {
   localStorage.setItem('talab_filter_fields', JSON.stringify(fields));
 }
 
+export function loadGroupingBasisFromStorage(): 'opening' | 'closing' | undefined {
+  const raw = localStorage.getItem('talab_grouping_basis');
+  if (raw === 'opening' || raw === 'closing') return raw;
+  return undefined;
+}
+
+export function saveGroupingBasisToStorage(basis: 'opening' | 'closing') {
+  localStorage.setItem('talab_grouping_basis', basis);
+}
+
 export function summariseDuration(ms: number): string {
   return toDurationStr(ms);
 }

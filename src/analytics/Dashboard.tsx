@@ -28,6 +28,7 @@ import {
   mapLabTradesToAnalytics
 } from './utils/liveMap';
 import { defaultFileFilterFields, guessMappingFromHeaders } from './utils/mappingGuess';
+import { loadGroupingBasisFromStorage, saveGroupingBasisToStorage } from './utils/parsing';
 
 const Dashboard: React.FC = () => {
   const { state, setTrades, setMapping, setFilterFields, setHeaders, setWarnings } = useAppContext();
@@ -42,7 +43,12 @@ const Dashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'time' | 'symbols' | 'holidays' | 'daywise'>('time');
   const [filtersHidden, setFiltersHidden] = useState(false);
   const [nightMode, setNightMode] = useState(false);
-  const [groupingBasis, setGroupingBasis] = useState<TimeGroupingBasis>('opening');
+  const [groupingBasis, setGroupingBasis] = useState<TimeGroupingBasis>(
+    () => loadGroupingBasisFromStorage() || 'opening'
+  );
+  useEffect(() => {
+    saveGroupingBasisToStorage(groupingBasis);
+  }, [groupingBasis]);
   const liveRequestRef = useRef(0);
   const workerRef = useRef<Worker | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);

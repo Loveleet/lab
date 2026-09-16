@@ -516,6 +516,7 @@ const TimeView: React.FC<Props> = ({
           <input
             type="radio"
             name="time-grouping-basis"
+            value="opening"
             checked={groupingBasis === 'opening'}
             onChange={() => onGroupingBasisChange('opening')}
           />
@@ -525,6 +526,7 @@ const TimeView: React.FC<Props> = ({
           <input
             type="radio"
             name="time-grouping-basis"
+            value="closing"
             checked={groupingBasis === 'closing'}
             onChange={() => onGroupingBasisChange('closing')}
           />
