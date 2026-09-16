@@ -56,7 +56,7 @@ function getBuildTimeDefault() {
 function isCloudServerOrigin() {
   if (typeof window === "undefined") return false;
   const h = window.location?.hostname || "";
-  return h === "150.241.244.130" || h === "clubinfotech.com" || h === "www.clubinfotech.com";
+  return h === "150.241.244.130";
 }
 
 /** Ensure API base has a protocol so fetch() uses it as absolute URL, not relative to GitHub Pages. */
