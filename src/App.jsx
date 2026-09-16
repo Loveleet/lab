@@ -27,7 +27,7 @@ import TradeComparePage from "./components/TradeComparePage";
 import ClientsPage from "./components/ClientsPage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
-import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed } from "./tradesCache";
+import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, isClosedTrade } from "./tradesCache";
 import {
   isHedgeClosedTrade,
   isDirectClosedTrade,
@@ -831,8 +831,15 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       } else {
         const n = body.positions_count ?? 0;
         const ins = body.inserted_count ?? 0;
+        const upd = body.updated_count ?? 0;
         const extra = (body.errors && body.errors.length) ? ` (${body.errors.length} errors)` : "";
-        setExchangeSyncNotice(`${body.message || "Synced"} | open=${n} inserted=${ins}${extra}`);
+        setExchangeSyncNotice(`${body.message || "Synced"} | open=${n} updated=${upd} inserted=${ins}${extra}`);
+        const runRes = await apiFetch(`/api/trades/running?_=${Date.now()}`);
+        const runJson = runRes.ok ? await runRes.json().catch(() => ({})) : {};
+        const running = Array.isArray(runJson.trades) ? runJson.trades : [];
+        if (running.length) {
+          setTradeData((prev) => mergeRunningAndClosed(running, (prev || []).filter(isClosedTrade)));
+        }
       }
       await refreshAllData();
       setBinanceRefreshNonce((n) => n + 1);

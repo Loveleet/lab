@@ -332,12 +332,7 @@ export async function fetchTradesSmart({
     });
   }
 
-  // Sync cloud JSONL file first so all users share one canonical closed file
-  if (onProgress) {
-    onProgress({ phase: "sync", percent: 10, message: "Syncing cloud closed file…" });
-  }
-  await syncServerClosedFile();
-
+  // Paint running P/L first — closed-file sync can take a long time.
   const [runningResult, dbMeta] = await Promise.all([fetchRunningTrades(), fetchTradesMeta()]);
 
   if (runningResult.authRequired) {
@@ -354,6 +349,11 @@ export async function fetchTradesSmart({
     : null;
 
   if (onRunning) onRunning(running, closed);
+
+  if (onProgress) {
+    onProgress({ phase: "sync", percent: 10, message: "Syncing cloud closed file…" });
+  }
+  await syncServerClosedFile();
 
   if (forceFullClosed) {
     await flushClosedCache();

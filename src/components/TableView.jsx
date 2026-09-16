@@ -29,6 +29,25 @@ const parseBoolean = (value) => {
   return false;
 };
 
+const isExchangeLiveTrade = (t) => {
+  if (!t) return false;
+  if (parseBoolean(t.exist_in_exchange)) return true;
+  return String(t.signalfrom || "").toLowerCase() === "exchange_sync";
+};
+
+const overlayUnrealizedPl = (exData, raw) => {
+  const positions = Array.isArray(exData?.positions) ? exData.positions : [];
+  if (!positions.length) return null;
+  const action = String(raw?.action || "").toUpperCase();
+  const want = action === "BUY" ? "LONG" : action === "SELL" ? "SHORT" : "";
+  const pos =
+    (want && positions.find((p) => String(p.positionSide || "").toUpperCase() === want)) ||
+    positions[0];
+  const v = pos?.unRealizedProfit ?? pos?.unrealized_pnl ?? pos?.unrealizedPnl;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
+};
+
 // ReportList.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -773,11 +792,9 @@ useEffect(() => {
       return;
     }
     lastBinanceNonceRef.current = binanceRefreshNonce;
-    const isExistInExchange = (t) =>
-      t.exist_in_exchange === true || t.exist_in_exchange === "true" || t.exist_in_exchange === 1;
     const seen = new Set();
     const jobs = [];
-    for (const t of filteredRawTrades.filter(isExistInExchange)) {
+    for (const t of filteredRawTrades.filter(isExchangeLiveTrade)) {
       const sym = getRobustSymbol(t.pair || t.symbol);
       if (!sym) continue;
       const key = overlayPositionKey(t, sym);
@@ -1400,7 +1417,7 @@ return (
           {filteredAndSortedData
             .map((item, rowIndex) => {
               const raw = getRawTrade(item);
-              const hasExchange = raw && (raw.exist_in_exchange === true || raw.exist_in_exchange === "true" || raw.exist_in_exchange === 1);
+              const hasExchange = isExchangeLiveTrade(raw);
               const symbol = hasExchange ? getRobustSymbol(raw.pair || raw.symbol) : "";
               const exData = symbol ? exchangeDataBySymbol[overlayPositionKey(raw, symbol)] : null;
               const expandKey = stripForCompare(item.Unique_ID) || `row-${rowIndex}`;
@@ -1593,15 +1610,19 @@ return (
                           </div>
                         ) : (
                           key === "PL" ? (
-                            val !== "N/A" ? (
+                            (() => {
+                              const livePl = overlayUnrealizedPl(exData, raw);
+                              const shown = livePl != null ? livePl.toFixed(2) : val;
+                              return shown !== "N/A" ? (
                               <span className={
                                 selectedRow === rowIndex 
-                                  ? (parseFloat(val) >= 0 ? "text-green-800" : "text-black")
-                                  : (parseFloat(val) >= 0 ? "text-green-400" : "text-red-400")
+                                  ? (parseFloat(shown) >= 0 ? "text-green-800" : "text-black")
+                                  : (parseFloat(shown) >= 0 ? "text-green-400" : "text-red-400")
                               }>
-                                {val}
+                                {shown}
                               </span>
-                            ) : val
+                              ) : val;
+                            })()
                           ) : key === "PL_After_Comm" && val !== "N/A" ? `$${val}` : val
                         )}
                       </td>
