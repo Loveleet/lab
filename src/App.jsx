@@ -29,7 +29,7 @@ import TradeComparePage from "./components/TradeComparePage";
 import ClientsPage from "./components/ClientsPage";
 import SoundSettings from "./components/SoundSettings";
 import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
-import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, isClosedTrade } from "./tradesCache";
+import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, isClosedTrade, isRunningTrade } from "./tradesCache";
 import {
   isHedgeClosedTrade,
   isDirectClosedTrade,
@@ -44,7 +44,10 @@ import {
   tradeClientName,
   isClosedTradeType,
   applyLivePlFromPositions,
+  pythonAccountQuery,
+  overlayPositionKey,
 } from "./tradeFilterUtils";
+import { getRobustSymbolOptional } from "./tradeSymbolUtils";
 
 function tradeSignalFrom(trade) {
   return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
@@ -57,6 +60,45 @@ function normalizeSignalFrom(raw) {
   const upper = s.toUpperCase();
   if (upper === "CHILD" || /^CHILD\d+$/.test(upper)) return "CHILD";
   return s;
+}
+
+async function fetchExchangePositionsForTrades(trades) {
+  const running = (trades || []).filter(isRunningTrade);
+  const seen = new Set();
+  const jobs = [];
+  for (const t of running) {
+    const sym = getRobustSymbolOptional(t.pair || t.symbol);
+    if (!sym) continue;
+    const key = overlayPositionKey(t, sym);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    jobs.push({
+      sym,
+      qs: pythonAccountQuery(t),
+      cid: tradeClientId(t),
+      venue: tradeVenue(t),
+    });
+  }
+  const positions = [];
+  await Promise.all(
+    jobs.map(async (job) => {
+      try {
+        const res = await apiFetch(`/api/open-position?symbol=${encodeURIComponent(job.sym)}${job.qs}`);
+        const data = await res.json().catch(() => ({}));
+        const rows = Array.isArray(data.positions) ? data.positions : [];
+        for (const p of rows) {
+          if (!p || typeof p !== "object") continue;
+          positions.push({
+            ...p,
+            client_id: data.client_id ?? job.cid,
+            exchange: data.exchange || job.venue,
+            symbol: p.symbol || job.sym,
+          });
+        }
+      } catch (_) {}
+    })
+  );
+  return positions;
 }
 
 function collapseSignalSelectionMap(previous) {
@@ -837,17 +879,25 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
         const upd = body.updated_count ?? 0;
         const extra = (body.errors && body.errors.length) ? ` (${body.errors.length} errors)` : "";
         setExchangeSyncNotice(`${body.message || "Synced"} | open=${n} updated=${upd} inserted=${ins}${extra}`);
-        const runRes = await apiFetch(`/api/trades/running?_=${Date.now()}`);
-        const runJson = runRes.ok ? await runRes.json().catch(() => ({})) : {};
-        const running = Array.isArray(runJson.trades) ? runJson.trades : [];
-        if (running.length) {
-          setTradeData((prev) => mergeRunningAndClosed(running, (prev || []).filter(isClosedTrade)));
-        }
       }
       await refreshAllData();
-      const livePositions = Array.isArray(body.positions) ? body.positions : [];
-      if (livePositions.length) {
-        setTradeData((prev) => applyLivePlFromPositions(prev, livePositions));
+      const runRes = await apiFetch(`/api/trades/running?_=${Date.now()}`);
+      const runJson = runRes.ok ? await runRes.json().catch(() => ({})) : {};
+      const running = Array.isArray(runJson.trades) ? runJson.trades : [];
+      const fromSync = Array.isArray(body.positions) ? body.positions : [];
+      const fromLive = await fetchExchangePositionsForTrades(running);
+      const livePositions = [...fromSync, ...fromLive];
+      if (running.length || livePositions.length) {
+        setTradeData((prev) =>
+          applyLivePlFromPositions(
+            mergeRunningAndClosed(running.length ? running : (prev || []).filter(isRunningTrade), (prev || []).filter(isClosedTrade)),
+            livePositions
+          )
+        );
+      }
+      const applied = livePositions.filter((p) => p && (p.unRealizedProfit != null || p.unrealized_pnl != null)).length;
+      if (applied) {
+        setExchangeSyncNotice((msg) => `${msg || "Synced"} | live PL on ${applied} exchange leg(s)`);
       }
       setBinanceRefreshNonce((n) => n + 1);
     } catch (e) {

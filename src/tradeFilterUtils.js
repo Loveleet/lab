@@ -1,4 +1,5 @@
 import moment from "moment";
+import { getRobustSymbolOptional } from "./tradeSymbolUtils";
 
 export const parseHedge = (hedgeValue) => {
   if (hedgeValue === true || hedgeValue === "true" || hedgeValue === 1 || hedgeValue === "1") return true;
@@ -74,7 +75,7 @@ export function applyLivePlFromPositions(trades, positions) {
   }
   const map = new Map();
   for (const p of positions) {
-    const sym = String(p?.symbol || "").toUpperCase();
+    const sym = getRobustSymbolOptional(p?.symbol) || String(p?.symbol || "").toUpperCase();
     const side = String(p?.positionSide || "").toUpperCase();
     const venue = String(p?.exchange || "binance").trim().toLowerCase() === "delta" ? "delta" : "binance";
     const cid = Number.isFinite(parseInt(p?.client_id, 10)) ? parseInt(p.client_id, 10) : 0;
@@ -87,7 +88,7 @@ export function applyLivePlFromPositions(trades, positions) {
   return trades.map((t) => {
     const type = String(t?.type || "");
     if (type !== "running" && type !== "hedge_hold") return t;
-    const sym = String(t?.pair || t?.symbol || "").toUpperCase();
+    const sym = getRobustSymbolOptional(t?.pair || t?.symbol) || String(t?.pair || t?.symbol || "").toUpperCase();
     const action = String(t?.action || "").toUpperCase();
     if (!sym || (action !== "BUY" && action !== "SELL")) return t;
     const venue = tradeVenue(t);
