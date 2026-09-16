@@ -351,7 +351,7 @@ async function requireAuth(req, res, next) {
 
 // Public paths: no auth (so GitHub Pages can show data). Add signal paths when ALLOW_PUBLIC_READ_SIGNALS.
 const PUBLIC_API_PATHS = ["/api/health", "/api/server-info", "/api/tunnel-url", "/api/alert-rule-books"];
-const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/pairstatus", "/api/active-loss", "/api/auto-execute", "/api/manage-auto-position", "/api/calculate-signals", "/api/income-history"];
+const PUBLIC_DATA_PATHS = ["/api/trades", "/api/trades/meta", "/api/trades/running", "/api/trades/closed", "/api/trades/closed/file", "/api/trades/closed/file/status", "/api/trades/closed/file/sync", "/api/trades/filtered", "/api/machines", "/api/trade", "/api/debug", "/api/supertrend", "/api/klines", "/api/sync-open-positions", "/api/futures-balance", "/api/open-position", "/api/open-positions", "/api/pairstatus", "/api/active-loss", "/api/auto-execute", "/api/manage-auto-position", "/api/calculate-signals", "/api/income-history"];
 const ALLOW_PUBLIC_READ_SIGNALS = String(process.env.ALLOW_PUBLIC_READ_SIGNALS || "").toLowerCase() === "true";
 const PUBLIC_READ_SIGNAL_PATHS = ["/api/pairstatus", "/api/active-loss", "/api/open-position", "/api/calculate-signals"];
 
@@ -2180,6 +2180,7 @@ async function proxyActionToPython(req, res, timeoutMs = 120000) {
 
 // Python-backed read endpoints (Information + Binance Data sections)
 app.get("/api/open-position", proxyGetToPython);
+app.get("/api/open-positions", proxyGetToPython);
 app.get("/api/open-orders", proxyGetToPython);
 app.get("/api/futures-balance", proxyGetToPython);
 app.get("/api/income-history", (req, res) => {

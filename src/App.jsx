@@ -63,6 +63,20 @@ function normalizeSignalFrom(raw) {
 }
 
 async function fetchExchangePositionsForTrades(trades) {
+  const positions = [];
+  try {
+    const allRes = await apiFetch("/api/open-positions");
+    const allJson = allRes.ok ? await allRes.json().catch(() => ({})) : {};
+    const allRows = Array.isArray(allJson.positions) ? allJson.positions : [];
+    for (const p of allRows) {
+      if (!p || typeof p !== "object") continue;
+      positions.push({
+        ...p,
+        client_id: p.client_id ?? 0,
+        exchange: p.exchange || allJson.exchange || "binance",
+      });
+    }
+  } catch (_) {}
   const running = (trades || []).filter(isRunningTrade);
   const seen = new Set();
   const jobs = [];
@@ -79,7 +93,6 @@ async function fetchExchangePositionsForTrades(trades) {
       venue: tradeVenue(t),
     });
   }
-  const positions = [];
   await Promise.all(
     jobs.map(async (job) => {
       try {

@@ -69,41 +69,50 @@ export function tradeVenue(trade) {
   return raw === "delta" ? "delta" : "binance";
 }
 
+function positionAction(p) {
+  const amt = parseFloat(p?.positionAmt ?? p?.size ?? 0);
+  let side = String(p?.positionSide || "").toUpperCase();
+  if (!side || side === "BOTH") {
+    side = Number.isFinite(amt) && amt < 0 ? "SHORT" : "LONG";
+  }
+  if (side === "LONG" || side === "BUY") return "BUY";
+  return "SELL";
+}
+
+function positionPl(p) {
+  const n = parseFloat(p?.unRealizedProfit ?? p?.unrealized_pnl ?? p?.unrealizedPnl ?? p?.unrealized_cash_pnl);
+  return Number.isFinite(n) ? n : null;
+}
+
 export function applyLivePlFromPositions(trades, positions) {
   if (!Array.isArray(trades) || !trades.length || !Array.isArray(positions) || !positions.length) {
     return trades;
   }
-  const map = new Map();
+  const legs = [];
   for (const p of positions) {
-    const sym = getRobustSymbolOptional(p?.symbol) || String(p?.symbol || "").toUpperCase();
-    const side = String(p?.positionSide || "").toUpperCase();
+    const sym = getRobustSymbolOptional(p?.symbol) || String(p?.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    const pl = positionPl(p);
+    if (!sym || pl == null) continue;
     const venue = String(p?.exchange || "binance").trim().toLowerCase() === "delta" ? "delta" : "binance";
     const cid = Number.isFinite(parseInt(p?.client_id, 10)) ? parseInt(p.client_id, 10) : 0;
-    const action = side === "LONG" || side === "BUY" ? "BUY" : "SELL";
-    const pl = parseFloat(p?.unRealizedProfit ?? p?.unrealized_pnl ?? p?.unrealizedPnl);
-    if (!sym || !Number.isFinite(pl)) continue;
-    map.set(`${cid}|${venue}|${sym}|${action}`, pl);
+    legs.push({ sym, action: positionAction(p), pl, venue, cid });
   }
-  if (!map.size) return trades;
+  if (!legs.length) return trades;
   return trades.map((t) => {
     const type = String(t?.type || "");
     if (type !== "running" && type !== "hedge_hold") return t;
-    const sym = getRobustSymbolOptional(t?.pair || t?.symbol) || String(t?.pair || t?.symbol || "").toUpperCase();
+    const sym = getRobustSymbolOptional(t?.pair || t?.symbol) || String(t?.pair || t?.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
     const action = String(t?.action || "").toUpperCase();
     if (!sym || (action !== "BUY" && action !== "SELL")) return t;
     const venue = tradeVenue(t);
     const cid = tradeClientId(t);
-    let pl = map.get(`${cid}|${venue}|${sym}|${action}`);
-    if (pl == null) {
-      const suffix = `|${venue}|${sym}|${action}`;
-      const hits = [];
-      for (const [k, v] of map.entries()) {
-        if (k.endsWith(suffix)) hits.push(v);
-      }
-      if (hits.length === 1) pl = hits[0];
-    }
-    if (pl == null) return t;
-    return { ...t, pl_after_comm: pl, Pl_after_comm: pl };
+    const sameSymAction = legs.filter((l) => l.sym === sym && l.action === action);
+    if (!sameSymAction.length) return t;
+    const exact = sameSymAction.filter((l) => l.cid === cid && l.venue === venue);
+    const house = sameSymAction.filter((l) => l.cid === 0 && l.venue === venue);
+    const venueOnly = sameSymAction.filter((l) => l.venue === venue);
+    const pick = house[0] || exact[0] || venueOnly[0] || sameSymAction[0];
+    return { ...t, pl_after_comm: pick.pl, Pl_after_comm: pick.pl };
   });
 }
 
