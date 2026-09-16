@@ -2878,6 +2878,11 @@ function queueAnalyticsParse(item) {
   });
 }
 
+function warmAnalyticsParseCache() {
+  const { files } = readAnalyticsManifest();
+  files.forEach(queueAnalyticsParse);
+}
+
 const analyticsUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, ANALYTICS_BLOBS_DIR),
@@ -3003,6 +3008,7 @@ if (fs.existsSync(distPath)) {
 // ✅ Start Express Server
 app.listen(PORT, () => {
   log(`server.js STARTED | http://localhost:${PORT}`);
+  warmAnalyticsParseCache();
 });
 const http = require("http");
 
