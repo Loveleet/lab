@@ -2834,6 +2834,50 @@ function safeAnalyticsFilename(name) {
   return /\.xlsx?$/i.test(cleaned) ? cleaned : `${cleaned}.xlsx`;
 }
 
+function analyticsParsedPath(id) {
+  return path.join(ANALYTICS_BLOBS_DIR, `${id}.json.gz`);
+}
+
+function analyticsBlobPath(item) {
+  return path.join(ANALYTICS_BLOBS_DIR, item.storedName);
+}
+
+function ensureAnalyticsParsed(item) {
+  const outPath = analyticsParsedPath(item.id);
+  if (fs.existsSync(outPath) && fs.statSync(outPath).size > 20) return outPath;
+  const xlsxPath = analyticsBlobPath(item);
+  if (!fs.existsSync(xlsxPath)) return null;
+  const XLSX = require("xlsx");
+  const workbook = XLSX.readFile(xlsxPath, {
+    cellDates: true,
+    cellNF: false,
+    cellStyles: false,
+  });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null, raw: true });
+  const headers = (matrix[0] || []).map((h) => (h == null ? "" : String(h)));
+  const rows = matrix.slice(1).map((row) => {
+    const arr = new Array(headers.length);
+    for (let i = 0; i < headers.length; i++) {
+      const value = row ? row[i] : null;
+      arr[i] = value instanceof Date && !Number.isNaN(value.getTime()) ? value.toISOString() : value ?? null;
+    }
+    return arr;
+  });
+  fs.writeFileSync(outPath, zlib.gzipSync(Buffer.from(JSON.stringify({ headers, rows })), { level: 6 }));
+  return outPath;
+}
+
+function queueAnalyticsParse(item) {
+  setImmediate(() => {
+    try {
+      ensureAnalyticsParsed(item);
+    } catch (err) {
+      log(`analytics parse cache failed: ${err.message}`, "ERROR");
+    }
+  });
+}
+
 const analyticsUpload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, ANALYTICS_BLOBS_DIR),
@@ -2882,6 +2926,7 @@ app.post("/api/analytics/files", (req, res) => {
     manifest.files.push(item);
     writeAnalyticsManifest(manifest);
     res.json({ file: { id: item.id, filename: item.filename, size: item.size, createdAt: item.createdAt, updatedAt: item.updatedAt } });
+    queueAnalyticsParse(item);
   });
 });
 
@@ -2906,9 +2951,31 @@ app.delete("/api/analytics/files/:id", (req, res) => {
   try {
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
   } catch (_) {}
+  try {
+    const parsedPath = analyticsParsedPath(id);
+    if (fs.existsSync(parsedPath)) fs.unlinkSync(parsedPath);
+  } catch (_) {}
   manifest.files = manifest.files.filter((f) => f.id !== id);
   writeAnalyticsManifest(manifest);
   res.json({ ok: true, id });
+});
+
+app.get("/api/analytics/files/:id/parsed", (req, res) => {
+  const id = String(req.params.id || "");
+  const manifest = readAnalyticsManifest();
+  const item = manifest.files.find((f) => f.id === id);
+  if (!item) return res.status(404).json({ error: "File not found" });
+  try {
+    const parsedPath = ensureAnalyticsParsed(item);
+    if (!parsedPath) return res.status(404).json({ error: "File missing on disk" });
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.setHeader("Content-Encoding", "gzip");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    fs.createReadStream(parsedPath).pipe(res);
+  } catch (err) {
+    log(`analytics parsed open failed: ${err.message}`, "ERROR");
+    res.status(500).json({ error: "Failed to open file" });
+  }
 });
 
 app.get("/api/analytics/files/:id", (req, res) => {

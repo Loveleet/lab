@@ -45,6 +45,26 @@ export async function deleteAnalyticsFile(id: string): Promise<void> {
   if (!res.ok) throw new Error(await readError(res));
 }
 
+export async function fetchParsedAnalyticsFile(
+  id: string
+): Promise<{ headers: string[]; rows: Record<string, any>[] } | null> {
+  const res = await apiFetch(`/api/analytics/files/${encodeURIComponent(id)}/parsed`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(await readError(res));
+  const json = await res.json();
+  const headers: string[] = Array.isArray(json.headers) ? json.headers : [];
+  const rawRows = Array.isArray(json.rows) ? json.rows : [];
+  if (rawRows.length && Array.isArray(rawRows[0])) {
+    const rows = rawRows.map((arr: any[]) => {
+      const row: Record<string, any> = {};
+      for (let i = 0; i < headers.length; i++) row[headers[i]] = arr[i] ?? null;
+      return row;
+    });
+    return { headers, rows };
+  }
+  return { headers, rows: rawRows };
+}
+
 export async function downloadAnalyticsFile(id: string): Promise<ArrayBuffer> {
   const res = await apiFetch(`/api/analytics/files/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(await readError(res));

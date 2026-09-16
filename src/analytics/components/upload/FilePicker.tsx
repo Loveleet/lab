@@ -3,6 +3,7 @@ import {
   AnalyticsCloudFile,
   deleteAnalyticsFile,
   downloadAnalyticsFile,
+  fetchParsedAnalyticsFile,
   listAnalyticsFiles,
   renameAnalyticsFile,
   uploadAnalyticsFile
@@ -83,6 +84,12 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
     setLoading(true);
     setError(null);
     try {
+      const parsed = await fetchParsedAnalyticsFile(item.id);
+      if (parsed?.headers?.length) {
+        onParsed({ headers: parsed.headers, rows: parsed.rows, fileName: item.filename });
+        onClose();
+        return;
+      }
       const buffer = await downloadAnalyticsFile(item.id);
       await parseAndClose(buffer, item.filename);
     } catch (err: any) {
