@@ -68,6 +68,44 @@ export function tradeVenue(trade) {
   return raw === "delta" ? "delta" : "binance";
 }
 
+export function applyLivePlFromPositions(trades, positions) {
+  if (!Array.isArray(trades) || !trades.length || !Array.isArray(positions) || !positions.length) {
+    return trades;
+  }
+  const map = new Map();
+  for (const p of positions) {
+    const sym = String(p?.symbol || "").toUpperCase();
+    const side = String(p?.positionSide || "").toUpperCase();
+    const venue = String(p?.exchange || "binance").trim().toLowerCase() === "delta" ? "delta" : "binance";
+    const cid = Number.isFinite(parseInt(p?.client_id, 10)) ? parseInt(p.client_id, 10) : 0;
+    const action = side === "LONG" || side === "BUY" ? "BUY" : "SELL";
+    const pl = parseFloat(p?.unRealizedProfit ?? p?.unrealized_pnl ?? p?.unrealizedPnl);
+    if (!sym || !Number.isFinite(pl)) continue;
+    map.set(`${cid}|${venue}|${sym}|${action}`, pl);
+  }
+  if (!map.size) return trades;
+  return trades.map((t) => {
+    const type = String(t?.type || "");
+    if (type !== "running" && type !== "hedge_hold") return t;
+    const sym = String(t?.pair || t?.symbol || "").toUpperCase();
+    const action = String(t?.action || "").toUpperCase();
+    if (!sym || (action !== "BUY" && action !== "SELL")) return t;
+    const venue = tradeVenue(t);
+    const cid = tradeClientId(t);
+    let pl = map.get(`${cid}|${venue}|${sym}|${action}`);
+    if (pl == null) {
+      const suffix = `|${venue}|${sym}|${action}`;
+      const hits = [];
+      for (const [k, v] of map.entries()) {
+        if (k.endsWith(suffix)) hits.push(v);
+      }
+      if (hits.length === 1) pl = hits[0];
+    }
+    if (pl == null) return t;
+    return { ...t, pl_after_comm: pl, Pl_after_comm: pl };
+  });
+}
+
 export function pythonAccountQuery(trade) {
   const params = new URLSearchParams();
   const cid = tradeClientId(trade);

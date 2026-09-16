@@ -41,6 +41,7 @@ import {
   tradeClientId,
   tradeClientName,
   isClosedTradeType,
+  applyLivePlFromPositions,
 } from "./tradeFilterUtils";
 
 function tradeSignalFrom(trade) {
@@ -842,6 +843,10 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
         }
       }
       await refreshAllData();
+      const livePositions = Array.isArray(body.positions) ? body.positions : [];
+      if (livePositions.length) {
+        setTradeData((prev) => applyLivePlFromPositions(prev, livePositions));
+      }
       setBinanceRefreshNonce((n) => n + 1);
     } catch (e) {
       setExchangeSyncNotice(e?.message || String(e));
