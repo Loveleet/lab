@@ -17,9 +17,10 @@ type Props = {
     rows: Record<string, any>[];
     fileName: string;
   }) => void;
+  onCloudSave?: (state: 'saving' | 'saved' | 'error', message?: string) => void;
 };
 
-const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed }) => {
+const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onCloudSave }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [files, setFiles] = useState<AnalyticsCloudFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -57,15 +58,23 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed }) => 
     setLoading(true);
     setError(null);
     try {
-      const saved = await uploadAnalyticsFile(file);
       const buffer = await file.arrayBuffer();
-      await parseAndClose(buffer, saved.filename || file.name);
+      await parseAndClose(buffer, file.name);
     } catch (err: any) {
-      setError(err?.message || 'Upload failed');
-    } finally {
+      setError(err?.message || 'Could not read file');
       setLoading(false);
       if (inputRef.current) inputRef.current.value = '';
+      return;
     }
+    setLoading(false);
+    if (inputRef.current) inputRef.current.value = '';
+    onCloudSave?.('saving');
+    uploadAnalyticsFile(file)
+      .then(() => onCloudSave?.('saved'))
+      .catch((err: any) => {
+        console.warn('[analytics] cloud save failed', err);
+        onCloudSave?.('error', err?.message || 'Could not save to cloud');
+      });
   };
 
   const handleOpen = async (item: AnalyticsCloudFile) => {
@@ -105,7 +114,9 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed }) => 
         <div className="flex items-start justify-between gap-4 mb-4">
           <div>
             <div className="text-xl font-semibold">Open file</div>
-            <p className={`text-xs ${muted}`}>Upload from this PC (saved on cloud) or pick a file already stored here.</p>
+            <p className={`text-xs ${muted}`}>
+              Open Excel from this PC immediately; it is saved to the cloud in the background. Or pick a file already stored here.
+            </p>
           </div>
           <button
             type="button"

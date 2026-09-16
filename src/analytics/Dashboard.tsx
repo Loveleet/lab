@@ -37,6 +37,7 @@ const Dashboard: React.FC = () => {
   const [fileName, setFileName] = useState('');
   const [liveStatus, setLiveStatus] = useState('');
   const [liveLoading, setLiveLoading] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState('');
   const [activeTab, setActiveTab] = useState<'time' | 'symbols' | 'holidays' | 'daywise'>('time');
   const [filtersHidden, setFiltersHidden] = useState(false);
   const [nightMode, setNightMode] = useState(false);
@@ -260,6 +261,7 @@ const Dashboard: React.FC = () => {
             setRawRows([]);
             setFileName('');
             setLiveStatus('');
+            setCloudStatus('');
             setFilesOpen(true);
           }
         }}
@@ -267,6 +269,7 @@ const Dashboard: React.FC = () => {
         fileName={fileName}
         liveStatus={liveStatus}
         liveLoading={liveLoading}
+        cloudStatus={cloudStatus}
         nightMode={nightMode}
       />
 
@@ -459,7 +462,13 @@ const Dashboard: React.FC = () => {
           setMapping(undefined);
           setWarnings([]);
           setFileName(name);
+          setCloudStatus('');
           setMappingOpen(true);
+        }}
+        onCloudSave={(state, message) => {
+          if (state === 'saving') setCloudStatus('saving to cloud…');
+          else if (state === 'saved') setCloudStatus('saved on cloud');
+          else setCloudStatus(message || 'opened locally — cloud save failed');
         }}
       />
     </div>

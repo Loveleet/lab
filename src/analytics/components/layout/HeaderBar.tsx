@@ -13,6 +13,7 @@ type Props = {
   fileName?: string;
   liveStatus?: string;
   liveLoading?: boolean;
+  cloudStatus?: string;
   nightMode: boolean;
 };
 
@@ -25,6 +26,7 @@ const HeaderBar: React.FC<Props> = ({
   fileName,
   liveStatus,
   liveLoading,
+  cloudStatus,
   nightMode
 }) => {
   const { state } = useAppContext();
@@ -51,7 +53,7 @@ const HeaderBar: React.FC<Props> = ({
                 ? liveStatus || 'Loading live + closed trades…'
                 : liveStatus || 'Live: running from DB + closed from cloud file'
               : fileName
-                ? `File: ${fileName}`
+                ? `File: ${fileName}${cloudStatus ? ` · ${cloudStatus}` : ''}`
                 : 'Open a saved file or upload Excel from this PC'}
           </div>
         </div>
