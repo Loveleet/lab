@@ -265,7 +265,7 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
             onClick={handleSave}
             disabled={applying}
           >
-            {applying ? 'Applying...' : 'Apply Mapping'}
+            {applying ? 'Applying...' : 'Confirm'}
           </button>
         </div>
       </div>

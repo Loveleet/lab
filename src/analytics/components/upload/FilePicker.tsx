@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AnalyticsCloudFile,
+  deleteAnalyticsFile,
   downloadAnalyticsFile,
   listAnalyticsFiles,
   renameAnalyticsFile,
@@ -27,6 +28,7 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
   const [error, setError] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const panel = nightMode ? 'bg-slate-900 text-slate-100 border border-slate-800' : 'bg-white text-slate-900';
   const muted = nightMode ? 'text-slate-400' : 'text-slate-500';
@@ -85,6 +87,20 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
       await parseAndClose(buffer, item.filename);
     } catch (err: any) {
       setError(err?.message || 'Could not open file');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (item: AnalyticsCloudFile) => {
+    setLoading(true);
+    setError(null);
+    try {
+      await deleteAnalyticsFile(item.id);
+      setFiles((prev) => prev.filter((f) => f.id !== item.id));
+      setConfirmDeleteId(null);
+    } catch (err: any) {
+      setError(err?.message || 'Delete failed');
     } finally {
       setLoading(false);
     }
@@ -189,18 +205,38 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
                 </div>
                 {renamingId === item.id ? (
                   <>
-                    <button className="text-xs font-semibold text-emerald-600" onClick={() => handleRename(item)}>
+                    <button type="button" className="text-xs font-semibold text-emerald-600" onClick={() => handleRename(item)}>
                       Save
                     </button>
-                    <button className={`text-xs ${muted}`} onClick={() => setRenamingId(null)}>
+                    <button type="button" className={`text-xs ${muted}`} onClick={() => setRenamingId(null)}>
+                      Cancel
+                    </button>
+                  </>
+                ) : confirmDeleteId === item.id ? (
+                  <>
+                    <button
+                      type="button"
+                      className="px-3 py-1 rounded-full text-xs font-semibold bg-rose-600 text-white"
+                      disabled={loading}
+                      onClick={() => handleDelete(item)}
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      type="button"
+                      className={`text-xs ${muted}`}
+                      onClick={() => setConfirmDeleteId(null)}
+                    >
                       Cancel
                     </button>
                   </>
                 ) : (
                   <>
                     <button
+                      type="button"
                       className={`text-xs font-semibold ${nightMode ? 'text-slate-300' : 'text-slate-600'}`}
                       onClick={() => {
+                        setConfirmDeleteId(null);
                         setRenamingId(item.id);
                         setRenameValue(item.filename);
                       }}
@@ -208,6 +244,17 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
                       Rename
                     </button>
                     <button
+                      type="button"
+                      className="text-xs font-semibold text-rose-500"
+                      onClick={() => {
+                        setRenamingId(null);
+                        setConfirmDeleteId(item.id);
+                      }}
+                    >
+                      Delete
+                    </button>
+                    <button
+                      type="button"
                       className={`px-3 py-1 rounded-full text-xs font-semibold ${
                         nightMode ? 'bg-indigo-500 text-white' : 'bg-slate-900 text-white'
                       }`}

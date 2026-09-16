@@ -40,6 +40,11 @@ export async function renameAnalyticsFile(id: string, filename: string): Promise
   return json.file as AnalyticsCloudFile;
 }
 
+export async function deleteAnalyticsFile(id: string): Promise<void> {
+  const res = await apiFetch(`/api/analytics/files/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await readError(res));
+}
+
 export async function downloadAnalyticsFile(id: string): Promise<ArrayBuffer> {
   const res = await apiFetch(`/api/analytics/files/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(await readError(res));

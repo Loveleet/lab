@@ -2897,6 +2897,20 @@ app.patch("/api/analytics/files/:id", (req, res) => {
   res.json({ file: { id: item.id, filename: item.filename, size: item.size, createdAt: item.createdAt, updatedAt: item.updatedAt } });
 });
 
+app.delete("/api/analytics/files/:id", (req, res) => {
+  const id = String(req.params.id || "");
+  const manifest = readAnalyticsManifest();
+  const item = manifest.files.find((f) => f.id === id);
+  if (!item) return res.status(404).json({ error: "File not found" });
+  const filePath = path.join(ANALYTICS_BLOBS_DIR, item.storedName);
+  try {
+    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+  } catch (_) {}
+  manifest.files = manifest.files.filter((f) => f.id !== id);
+  writeAnalyticsManifest(manifest);
+  res.json({ ok: true, id });
+});
+
 app.get("/api/analytics/files/:id", (req, res) => {
   const id = String(req.params.id || "");
   const manifest = readAnalyticsManifest();
