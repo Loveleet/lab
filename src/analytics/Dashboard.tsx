@@ -27,6 +27,7 @@ import {
   liveHeadersFromRows,
   mapLabTradesToAnalytics
 } from './utils/liveMap';
+import { defaultFileFilterFields, guessMappingFromHeaders } from './utils/mappingGuess';
 
 const Dashboard: React.FC = () => {
   const { state, setTrades, setMapping, setFilterFields, setHeaders, setWarnings } = useAppContext();
@@ -459,11 +460,30 @@ const Dashboard: React.FC = () => {
           setRawRows(rows);
           setHeaders(headers);
           setTrades([]);
-          setMapping(undefined);
           setWarnings([]);
           setFileName(name);
           setCloudStatus('');
-          setMappingOpen(true);
+          const guessed = guessMappingFromHeaders(headers);
+          if (!guessed) {
+            setMapping(undefined);
+            setMappingOpen(true);
+            return;
+          }
+          setMapping(guessed);
+          setFilterFields(defaultFileFilterFields(headers));
+          const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
+          worker.onmessage = (ev: MessageEvent<any>) => {
+            if (ev.data?.type === 'normalized') {
+              setTrades(ev.data.trades || []);
+              setWarnings(ev.data.warnings || []);
+              worker.terminate();
+            }
+          };
+          worker.onerror = () => {
+            setMappingOpen(true);
+            worker.terminate();
+          };
+          worker.postMessage({ type: 'normalize', rows, mapping: guessed });
         }}
         onCloudSave={(state, message) => {
           if (state === 'saving') setCloudStatus('saving to cloud…');

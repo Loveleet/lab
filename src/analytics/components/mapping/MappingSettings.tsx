@@ -3,10 +3,10 @@ import { useAppContext } from '../../context/AppContext';
 import { FilterFieldConfig, FundamentalMapping } from '../../types/trade';
 import {
   loadFilterFieldsFromStorage,
-  loadMappingFromStorage,
   saveFilterFieldsToStorage,
   saveMappingToStorage
 } from '../../utils/parsing';
+import { defaultFileFilterFields, guessMappingFromHeaders, mappingMatchesHeaders } from '../../utils/mappingGuess';
 
 type Props = {
   open: boolean;
@@ -17,15 +17,15 @@ type Props = {
 };
 
 const requiredFields: { key: keyof FundamentalMapping; label: string }[] = [
-  { key: 'startTimeCol', label: 'Trade Start Time' },
-  { key: 'endTimeCol', label: 'Trade End Time' },
-  { key: 'pnlCol', label: 'Net P/L' },
+  { key: 'startTimeCol', label: 'Execute time' },
+  { key: 'endTimeCol', label: 'Close time' },
+  { key: 'pnlCol', label: 'P/L' },
   { key: 'symbolCol', label: 'Symbol' },
-  { key: 'actionCol', label: 'Action' }
+  { key: 'actionCol', label: 'Side' }
 ];
 
 const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nightMode }) => {
-  const { setMapping, setTrades, setFilterFields, setWarnings } = useAppContext();
+  const { state, setMapping, setTrades, setFilterFields, setWarnings } = useAppContext();
   const [localMapping, setLocalMapping] = useState<FundamentalMapping | undefined>();
   const [filterSelections, setFilterSelections] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
@@ -34,11 +34,15 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
 
   useEffect(() => {
     if (!open) return;
-    const saved = loadMappingFromStorage();
-    if (saved) setLocalMapping(saved);
-    const savedFilters = loadFilterFieldsFromStorage();
-    if (savedFilters) setFilterSelections(new Set(savedFilters));
-  }, [open]);
+    const guessed = guessMappingFromHeaders(headers);
+    const current = mappingMatchesHeaders(state.fundamentalMapping, headers)
+      ? state.fundamentalMapping
+      : undefined;
+    setLocalMapping(current || guessed);
+    const savedFilters = loadFilterFieldsFromStorage()?.filter((f) => headers.includes(f));
+    const defaults = defaultFileFilterFields(headers).map((f) => f.fieldName);
+    setFilterSelections(new Set(savedFilters?.length ? savedFilters : defaults));
+  }, [open, headers, state.fundamentalMapping]);
 
   useEffect(() => {
     setError(null);
