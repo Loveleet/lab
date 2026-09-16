@@ -107,31 +107,42 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed }) => 
             <div className="text-xl font-semibold">Open file</div>
             <p className={`text-xs ${muted}`}>Upload from this PC (saved on cloud) or pick a file already stored here.</p>
           </div>
-          <button className={`text-sm font-semibold ${nightMode ? 'text-slate-300' : 'text-slate-500'}`} onClick={onClose}>
+          <button
+            type="button"
+            className={`text-sm font-semibold ${nightMode ? 'text-slate-300' : 'text-slate-500'}`}
+            onClick={onClose}
+          >
             Close
           </button>
         </div>
 
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".xlsx,.xls"
-          className="hidden"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleUpload(file);
-          }}
-        />
-
-        <button
-          className={`w-full mb-4 px-4 py-2 rounded-full text-sm font-semibold ${
-            nightMode ? 'bg-indigo-500 text-white hover:bg-indigo-400' : 'bg-slate-900 text-white'
+        <label
+          className={`block w-full mb-4 px-4 py-2 rounded-full text-sm font-semibold text-center cursor-pointer ${
+            loading
+              ? 'opacity-60 pointer-events-none'
+              : nightMode
+                ? 'bg-indigo-500 text-white hover:bg-indigo-400'
+                : 'bg-slate-900 text-white'
           }`}
-          disabled={loading}
-          onClick={() => inputRef.current?.click()}
         >
+          <input
+            ref={inputRef}
+            id="analytics-local-file"
+            type="file"
+            accept=".xlsx,.xls,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            className="sr-only"
+            disabled={loading}
+            onClick={(e) => {
+              e.stopPropagation();
+              (e.target as HTMLInputElement).value = '';
+            }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleUpload(file);
+            }}
+          />
           {loading ? 'Working…' : 'Upload from this PC'}
-        </button>
+        </label>
 
         {error && <div className="mb-3 text-sm text-rose-500">{error}</div>}
 
