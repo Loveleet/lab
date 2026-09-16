@@ -54,6 +54,7 @@ const axios = require('axios');
 const { spawn } = require("child_process");
 const zlib = require("zlib");
 const crypto = require("crypto");
+const multer = require("multer");
 
 const app = express();
 const fs = require("fs");
@@ -111,6 +112,8 @@ const allowedOrigins = [
   "http://150.241.244.130:10000", // Cloud (when frontend is served from same server)
   "https://loveleet.github.io",   // GitHub Pages (frontend hosted by GitHub)
   "https://lab-anish.vercel.app",
+  "https://clubinfotech.com",
+  "https://www.clubinfotech.com",
   ...extraOrigins,
 ];
 
@@ -2802,6 +2805,108 @@ app.get("/api/SignalProcessingLogsByUIDs", async (req, res) => {
     console.error("❌ Query Error (/api/SignalProcessingLogsByUIDs):", error);
     res.status(500).json({ error: error.message || "Failed to fetch logs by UIDs" });
   }
+});
+
+// ── Analytics Excel files (stored on this cloud, listed/renamed from the UI) ──
+const ANALYTICS_FILES_DIR = path.join(__dirname, "..", "data", "analytics-files");
+const ANALYTICS_BLOBS_DIR = path.join(ANALYTICS_FILES_DIR, "blobs");
+const ANALYTICS_MANIFEST = path.join(ANALYTICS_FILES_DIR, "manifest.json");
+fs.mkdirSync(ANALYTICS_BLOBS_DIR, { recursive: true });
+
+function readAnalyticsManifest() {
+  try {
+    if (!fs.existsSync(ANALYTICS_MANIFEST)) return { files: [] };
+    const raw = JSON.parse(fs.readFileSync(ANALYTICS_MANIFEST, "utf8"));
+    return { files: Array.isArray(raw.files) ? raw.files : [] };
+  } catch {
+    return { files: [] };
+  }
+}
+
+function writeAnalyticsManifest(manifest) {
+  fs.mkdirSync(ANALYTICS_FILES_DIR, { recursive: true });
+  fs.writeFileSync(ANALYTICS_MANIFEST, JSON.stringify({ files: manifest.files || [] }, null, 2));
+}
+
+function safeAnalyticsFilename(name) {
+  const base = path.basename(String(name || "file.xlsx")).replace(/[^\w.\- ()[\]]+/g, "_").trim();
+  const cleaned = base || "file.xlsx";
+  return /\.xlsx?$/i.test(cleaned) ? cleaned : `${cleaned}.xlsx`;
+}
+
+const analyticsUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, ANALYTICS_BLOBS_DIR),
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname || "").toLowerCase() === ".xls" ? ".xls" : ".xlsx";
+      cb(null, `${crypto.randomUUID()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 1024 * 1024 * 200 },
+  fileFilter: (_req, file, cb) => {
+    if (!/\.xlsx?$/i.test(file.originalname || "")) {
+      return cb(new Error("Only Excel files are allowed"));
+    }
+    cb(null, true);
+  },
+});
+
+app.get("/api/analytics/files", (req, res) => {
+  const { files } = readAnalyticsManifest();
+  const list = files
+    .map((f) => ({
+      id: f.id,
+      filename: f.filename,
+      size: f.size || 0,
+      createdAt: f.createdAt,
+      updatedAt: f.updatedAt,
+    }))
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json({ files: list });
+});
+
+app.post("/api/analytics/files", (req, res) => {
+  analyticsUpload.single("file")(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || "Upload failed" });
+    if (!req.file) return res.status(400).json({ error: "Missing file" });
+    const now = Date.now();
+    const item = {
+      id: path.parse(req.file.filename).name,
+      filename: safeAnalyticsFilename(req.file.originalname),
+      storedName: req.file.filename,
+      size: req.file.size,
+      createdAt: now,
+      updatedAt: now,
+    };
+    const manifest = readAnalyticsManifest();
+    manifest.files.push(item);
+    writeAnalyticsManifest(manifest);
+    res.json({ file: { id: item.id, filename: item.filename, size: item.size, createdAt: item.createdAt, updatedAt: item.updatedAt } });
+  });
+});
+
+app.patch("/api/analytics/files/:id", (req, res) => {
+  const id = String(req.params.id || "");
+  const filename = safeAnalyticsFilename(req.body?.filename);
+  const manifest = readAnalyticsManifest();
+  const item = manifest.files.find((f) => f.id === id);
+  if (!item) return res.status(404).json({ error: "File not found" });
+  item.filename = filename;
+  item.updatedAt = Date.now();
+  writeAnalyticsManifest(manifest);
+  res.json({ file: { id: item.id, filename: item.filename, size: item.size, createdAt: item.createdAt, updatedAt: item.updatedAt } });
+});
+
+app.get("/api/analytics/files/:id", (req, res) => {
+  const id = String(req.params.id || "");
+  const manifest = readAnalyticsManifest();
+  const item = manifest.files.find((f) => f.id === id);
+  if (!item) return res.status(404).json({ error: "File not found" });
+  const filePath = path.join(ANALYTICS_BLOBS_DIR, item.storedName);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File missing on disk" });
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(item.filename)}"`);
+  res.sendFile(path.resolve(filePath));
 });
 
 // ✅ Serve frontend (dashboard) from dist when present

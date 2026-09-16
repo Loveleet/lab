@@ -20,6 +20,8 @@ import LoginPage from './components/LoginPage';
 import { checkSession, logoutApi, extendSession, AuthContext } from './auth';
 
 import GroupViewPage from './pages/GroupViewPage';
+import AnalyticsPage from './analytics/AnalyticsPage';
+import AnalyticsChartPage from './analytics/pages/ChartPage';
 import RefreshControls from './components/RefreshControls';
 import ToolbarSegment from "./components/ToolbarSegment";
 import EmaTrendGrid, { EmaUpdatedAgo } from "./components/EmaTrendGrid";
@@ -2572,6 +2574,8 @@ useEffect(() => {
         <Route path="/pages/group-view" element={<GroupViewPage />} />
         <Route path="/trades" element={<TradeComparePage />} />
         <Route path="/clients" element={<ClientsPage />} />
+        <Route path="/analytics" element={<AnalyticsPage />} />
+        <Route path="/analytics/chart" element={<AnalyticsChartPage />} />
         {/* <Route path="/settings" element={<SettingsPage />} /> */}
         <Route path="/*" element={
           <>

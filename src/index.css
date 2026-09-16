@@ -216,3 +216,31 @@
     @apply text-activeLink;
   }
 }
+
+.card {
+  @apply rounded-2xl bg-white shadow-card border border-slate-100 transition-all duration-200 hover:shadow-lg;
+}
+
+@keyframes help-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes help-popup-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -48%) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.animate-help-backdrop {
+  animation: help-backdrop-in 0.2s ease-out forwards;
+}
+
+.animate-help-popup {
+  animation: help-popup-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}

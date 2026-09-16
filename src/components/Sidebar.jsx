@@ -1,7 +1,7 @@
 import React from "react";
 import { FaChartBar, FaExchangeAlt, FaCog } from "react-icons/fa";
 import { NavLink } from "react-router-dom";
-import { Home, BarChart, Users, FileText, Menu, X, Plus, Space, Activity, SquareStack } from "lucide-react";
+import { Home, BarChart, Users, FileText, Menu, X, Plus, Space, Activity, SquareStack, LineChart } from "lucide-react";
 
 const SidebarItem = ({ icon: Icon, text, isOpen, to, target }) => (
   <NavLink
@@ -45,6 +45,14 @@ const Sidebar = ({ isOpen, toggleSidebar }) => {
               text="Trades" 
               isOpen={isOpen} 
               to="/trades"
+            />
+          </li>
+          <li>
+            <SidebarItem
+              icon={LineChart}
+              text="Analytics"
+              isOpen={isOpen}
+              to="/analytics"
             />
           </li>
           <li>
