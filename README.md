@@ -23,7 +23,14 @@ npm install
 npm run dev
 ```
 
-API in dev: proxy to `http://localhost:10000` (run the server separately if needed).
+API in dev: Vite probes the VM on LAN (`192.168.29.128:10000`), then Tailscale (`100.80.105.9:10000`). Remote: install Tailscale and join the same tailnet.
+
+```bash
+npm install
+npm run dev
+```
+
+Test login: `test@example.com` / `demo123!`. Optional override: `.env.development.example`.
 
 **To get "Information" (signals) and "Binance Data" (live position) on localhost:**
 

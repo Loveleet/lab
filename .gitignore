@@ -9,6 +9,7 @@ dist/
 # Env and secrets (do not commit)
 .env
 .env.*
+!.env.development.example
 .env.example
 .env.deploy.example
 .env.development.example
@@ -20,6 +21,7 @@ secrets.env
 secrets.env.example
 *.env
 *.env.*
+!.env.development.example
 
 # Server with credentials — only on cloud; repo has server.example.js
 server/server*.js

@@ -1,12 +1,42 @@
 import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// https://vite.dev/config/
-// Relative base so assets work on GitHub Pages (e.g. loveleet.github.io/lab_live/) and anywhere
-export default defineConfig(({ mode }) => {
+const LAN_API = 'http://192.168.29.128:10000'
+const TAILSCALE_API = 'http://100.80.105.9:10000'
+const LOCAL_API = 'http://localhost:10000'
+
+function probeHealth(baseUrl, timeoutMs) {
+  const url = `${baseUrl.replace(/\/$/, '')}/api/health`
+  return new Promise((resolve) => {
+    const ac = new AbortController()
+    const t = setTimeout(() => ac.abort(), timeoutMs)
+    fetch(url, { signal: ac.signal })
+      .then((res) => resolve(res.ok))
+      .catch(() => resolve(false))
+      .finally(() => clearTimeout(t))
+  })
+}
+
+async function resolveProxyTarget(explicit) {
+  if (explicit) {
+    console.log(`[vite] API proxy (env): ${explicit}`)
+    return explicit
+  }
+  if (await probeHealth(LAN_API, 1500)) {
+    console.log(`[vite] API proxy: LAN ${LAN_API}`)
+    return LAN_API
+  }
+  if (await probeHealth(TAILSCALE_API, 4000)) {
+    console.log(`[vite] API proxy: Tailscale ${TAILSCALE_API}`)
+    return TAILSCALE_API
+  }
+  console.log(`[vite] API proxy: fallback ${LOCAL_API} (LAN and Tailscale not reachable)`)
+  return LOCAL_API
+}
+
+export default defineConfig(async ({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  // Local dev: proxy /api and /auth to Node. Default localhost:10000; set VITE_DEV_PROXY_TARGET for cloud.
-  const proxyTarget = env.VITE_DEV_PROXY_TARGET || 'http://localhost:10000'
+  const proxyTarget = await resolveProxyTarget((env.VITE_DEV_PROXY_TARGET || '').trim())
 
   return {
     base: env.VITE_BASE_PATH || './',
