@@ -30,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Test login: `test@example.com` / `demo123!`. Optional override: `.env.development.example`.
+Test login: ask the team (do not put passwords in Git). Optional override: `.env.development.example`.
 
 **To get "Information" (signals) and "Binance Data" (live position) on localhost:**
 

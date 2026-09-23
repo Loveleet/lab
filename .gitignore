@@ -26,6 +26,7 @@ secrets.env.example
 # Server with credentials — only on cloud; repo has server.example.js
 server/server*.js
 !server/server.example.js
+server/sql/seed_test_user.sql
 # Python keys and DB credentials (do not commit; use *.example.py as template)
 python/utils/keys*.py
 !python/utils/keys1.example.py
@@ -39,6 +40,9 @@ scripts/
 python/
 *.pem
 *.key
+*.pub
+id_ed25519*
+id_ed25519
 *.p12
 *.pfx
 *.crt
