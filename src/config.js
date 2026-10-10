@@ -1,5 +1,6 @@
 /** Cloud API (direct IP). Used when not on localhost and not GitHub Pages. */
-const CLOUD_API = "http://150.241.244.130:10000";
+const CLOUD_API = "http://167.104.222.209:10000";
+const CLOUD_HOSTS = ["167.104.222.209"];
 
 /** Local API (Node server). Vite dev server proxies /api to this. */
 const LOCAL_API_PORT = 10000;
@@ -30,7 +31,7 @@ function getBuildTimeDefault() {
   let base = import.meta.env.VITE_API_BASE_URL;
   if (base !== undefined && base !== "") {
     if (typeof window !== "undefined" && window.location?.protocol === "https:" && base.startsWith("http://")) {
-      if (base.startsWith("http://150.241.244.130")) return ""; // raw IP over HTTPS causes ERR_SSL_PROTOCOL_ERROR
+      if (CLOUD_HOSTS.some((h) => base.startsWith("http://" + h))) return ""; // raw IP over HTTPS causes ERR_SSL_PROTOCOL_ERROR
       base = "https://" + base.slice(7);
     }
     return base;
@@ -41,10 +42,10 @@ function getBuildTimeDefault() {
     if (localhostUseCloudFallback) return CLOUD_API;
     return ""; // Relative URLs; Vite proxy in vite.config.js forwards /api to http://localhost:10000
   }
-  // Cloud server (150.241.244.130): same-origin
+  // Cloud server: same-origin
   if (typeof window !== "undefined" && window.location?.origin) {
     const o = window.location.origin;
-    if (o.startsWith("http://150.241.244.130") || o.startsWith("https://localhost")) return "";
+    if (CLOUD_HOSTS.some((h) => o.startsWith("http://" + h)) || o.startsWith("https://localhost")) return "";
   }
   // Production on HTTPS (e.g. GitHub Pages): use API_BASE_URL secret or api-config.json (fixed cloud URL)
   if (typeof window !== "undefined" && window.location?.protocol === "https:") return "";
@@ -56,7 +57,7 @@ function getBuildTimeDefault() {
 function isCloudServerOrigin() {
   if (typeof window === "undefined") return false;
   const h = window.location?.hostname || "";
-  return h === "150.241.244.130";
+  return CLOUD_HOSTS.includes(h);
 }
 
 /** Ensure API base has a protocol so fetch() uses it as absolute URL, not relative to GitHub Pages. */
@@ -116,7 +117,7 @@ function loadRuntimeApiConfig() {
         }
       } else if (window.location?.hostname?.includes("github.io") && !loggedEmptyOnce) {
         loggedEmptyOnce = true;
-        console.warn("[LAB] api-config.json has empty apiBaseUrl. Set API_BASE_URL to your cloud URL (e.g. http://150.241.244.130:10000) and run Deploy frontend to GitHub Pages.");
+        console.warn("[LAB] api-config.json has empty apiBaseUrl. Set API_BASE_URL to your cloud URL (e.g. http://167.104.222.209:10000) and run Deploy frontend to GitHub Pages.");
       }
     })
     .catch((err) => {
@@ -136,7 +137,7 @@ export const API_BASE_URL = typeof window !== "undefined" ? getApiBaseUrl() : ""
 if (typeof window !== "undefined" && window.location?.hostname?.includes("github.io")) {
   console.log("[LAB] Page URL:", window.location.href);
   if (!API_BASE_URL && !runtimeApiBaseUrl) {
-    console.log("[LAB] Set API_BASE_URL secret to your cloud URL (e.g. http://150.241.244.130:10000) and run Deploy frontend to GitHub Pages.");
+    console.log("[LAB] Set API_BASE_URL secret to your cloud URL (e.g. http://167.104.222.209:10000) and run Deploy frontend to GitHub Pages.");
   }
 }
 

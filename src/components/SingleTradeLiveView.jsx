@@ -3004,8 +3004,12 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       return;
     }
     if (binanceDataRefreshKey === 0) return;
-    const waitForClient = (isExistInExchange || accountFields.exchange === "delta") && !accountFields.client_id;
-    if (waitForClient) return;
+    // Delta needs a client. House Binance trades have no client_id — still fetch.
+    const waitForClient = accountFields.exchange === "delta" && !accountFields.client_id;
+    if (waitForClient) {
+      setBinanceLoading(false);
+      return;
+    }
     let cancelled = false;
     const fetchOpenPosition = async () => {
       setBinanceLoading(true);
@@ -3034,7 +3038,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       return;
     }
     if (binanceDataRefreshKey === 0) return;
-    const waitForClient = (isExistInExchange || accountFields.exchange === "delta") && !accountFields.client_id;
+    const waitForClient = accountFields.exchange === "delta" && !accountFields.client_id;
     if (waitForClient) return;
     let cancelled = false;
     const fetchOpenOrders = async () => {
@@ -3055,7 +3059,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   // Fetch futures balance on first open, then only when user clicks Refresh Binance
   useEffect(() => {
     if (binanceDataRefreshKey === 0) return;
-    const waitForClient = (isExistInExchange || accountFields.exchange === "delta") && !accountFields.client_id;
+    const waitForClient = accountFields.exchange === "delta" && !accountFields.client_id;
     if (waitForClient) return;
     let cancelled = false;
     const fetchFuturesBalance = async () => {

@@ -5,7 +5,7 @@
 | App | Database | What you see |
 |-----|----------|--------------|
 | **Render / Vercel** | Render Postgres (or your full DB) | Real data — 500+ trades |
-| **Cloud (150.241.244.130)** | Local PostgreSQL on the server | Only 2 seed rows (or “demo data hidden”) |
+| **Cloud (167.104.222.209)** | Local PostgreSQL on the server | Only 2 seed rows (or “demo data hidden”) |
 
 The cloud is **not broken**. It is using a **different database** than Render. Same code, different data source.
 
@@ -22,7 +22,7 @@ The cloud is **not broken**. It is using a **different database** than Render. S
 ### 2. Set it on the cloud server
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 sudo nano /etc/lab-trading-dashboard.env
 ```
 
@@ -44,7 +44,7 @@ sudo systemctl restart lab-trading-dashboard
 Wait ~30 seconds, then:
 
 ```bash
-curl http://150.241.244.130:10000/api/debug
+curl http://167.104.222.209:10000/api/debug
 ```
 
 You should see:
@@ -52,14 +52,14 @@ You should see:
 - `"dbSource": "DATABASE_URL (e.g. Render)"`
 - `"counts": { "alltraderecords": 500+, ... }`
 
-Then open **http://150.241.244.130:10000** in the browser — you should see the same real data as Render.
+Then open **http://167.104.222.209:10000** in the browser — you should see the same real data as Render.
 
 ---
 
 ## If it still doesn’t work
 
 - **“Database not connected” or timeout**  
-  Check logs: `ssh root@150.241.244.130 'journalctl -u lab-trading-dashboard -n 80 --no-pager'`  
+  Check logs: `ssh root@167.104.222.209 'journalctl -u lab-trading-dashboard -n 80 --no-pager'`  
   Look for connection errors (wrong URL, firewall, SSL).
 
 - **Render only allows “Internal” URL**  

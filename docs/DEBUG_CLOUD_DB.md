@@ -50,7 +50,7 @@ So the database the app is using (localhost `labdb2`) **only has 2 rows** in `al
 **Result:** From the cloud server, **port 5432 on 150.241.245.36 is not reachable** (connection test failed). So either:
 
 - Postgres on 150.241.245.36 is not listening for remote connections, or  
-- A firewall is blocking the cloud (150.241.244.130) from 150.241.245.36:5432.
+- A firewall is blocking the cloud (167.104.222.209) from 150.241.245.36:5432.
 
 ---
 
@@ -74,8 +74,8 @@ So: the cloud **is** running server.js and **is** reaching **a** database; that 
 
 **Option A – Use the remote DB (150.241.245.36) when it’s reachable**
 
-1. On **150.241.245.36**: allow Postgres from the cloud (open port 5432 for 150.241.244.130, set `listen_addresses` and `pg_hba.conf`).
-2. On the **cloud** (150.241.244.130):  
+1. On **150.241.245.36**: allow Postgres from the cloud (open port 5432 for 167.104.222.209, set `listen_addresses` and `pg_hba.conf`).
+2. On the **cloud** (167.104.222.209):  
    `sudo nano /etc/lab-trading-dashboard.env`  
    Set:
    - `DB_HOST=150.241.245.36`

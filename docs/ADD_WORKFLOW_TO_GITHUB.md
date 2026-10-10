@@ -59,7 +59,7 @@ jobs:
 
       - name: Install and build frontend
         env:
-          VITE_API_BASE_URL: ${{ secrets.API_BASE_URL || 'http://150.241.244.130:10000' }}
+          VITE_API_BASE_URL: ${{ secrets.API_BASE_URL || 'http://167.104.222.209:10000' }}
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
         run: |
           npm ci

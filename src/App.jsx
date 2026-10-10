@@ -2839,11 +2839,11 @@ useEffect(() => {
                   {corsError && (
                     <div className="mb-4 p-4 rounded-lg bg-red-100 dark:bg-red-900/40 border border-red-400 dark:border-red-600 text-red-900 dark:text-red-100 text-sm">
                       <strong className="block mb-2">❌ CORS Error: Cloud server not allowing GitHub Pages origin</strong>
-                      <p className="mb-2">The cloud server (150.241.244.130) is blocking requests from <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">https://loveleet.github.io</code>.</p>
+                      <p className="mb-2">The cloud server (167.104.222.209) is blocking requests from <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">https://loveleet.github.io</code>.</p>
                       <p className="mb-2"><strong>Fix:</strong> Deploy the latest <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">server/server.js</code> to the cloud (it has CORS for GitHub Pages) and restart the Node app.</p>
                       <ol className="list-decimal list-inside space-y-1 mt-2 text-xs">
-                        <li>From laptop: <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">export DEPLOY_HOST=root@150.241.244.130 && ./scripts/deploy-to-server.sh</code></li>
-                        <li>Or manually: <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">scp server/server.js root@150.241.244.130:/opt/apps/lab-trading-dashboard/server/</code></li>
+                        <li>From laptop: <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">export DEPLOY_HOST=root@167.104.222.209 && ./scripts/deploy-to-server.sh</code></li>
+                        <li>Or manually: <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">scp server/server.js root@167.104.222.209:/opt/apps/lab-trading-dashboard/server/</code></li>
                         <li>On cloud: <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">sudo systemctl restart lab-trading-dashboard</code></li>
                         <li>Verify: <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">curl -s http://localhost:10000/api/server-info</code> should show <code className="bg-red-200/60 dark:bg-red-800/60 px-1 rounded">hasGitHubPagesOrigin: true</code></li>
                       </ol>
@@ -2870,7 +2870,7 @@ useEffect(() => {
                   {apiUnreachable && !corsError && !localServerDown && (
                     <div className="mb-4 p-4 rounded-lg bg-amber-100 dark:bg-amber-900/40 border border-amber-400 dark:border-amber-600 text-amber-900 dark:text-amber-100 text-sm">
                       <strong className="block mb-2">API unreachable</strong>
-                      <p className="mb-2">The backend at the current API URL could not be reached. Check that the server is running and that <code className="bg-amber-200/60 dark:bg-amber-800/60 px-1 rounded">API_BASE_URL</code> is set to your cloud URL (e.g. <code className="bg-amber-200/60 dark:bg-amber-800/60 px-1 rounded">http://150.241.244.130:10000</code>).</p>
+                      <p className="mb-2">The backend at the current API URL could not be reached. Check that the server is running and that <code className="bg-amber-200/60 dark:bg-amber-800/60 px-1 rounded">API_BASE_URL</code> is set to your cloud URL (e.g. <code className="bg-amber-200/60 dark:bg-amber-800/60 px-1 rounded">http://167.104.222.209:10000</code>).</p>
                       <p className="text-xs">Hard-refresh (Ctrl+Shift+R) after fixing the URL or restarting the server.</p>
                     </div>
                   )}
@@ -2879,7 +2879,7 @@ useEffect(() => {
                       <strong className="block mb-2">API not configured for GitHub Pages</strong>
                       <p className="mb-2">To load data here, set your backend URL (cloud IP or domain) and redeploy:</p>
                       <ol className="list-decimal list-inside space-y-1 mt-2 text-xs">
-                        <li>Add secret <a href="https://github.com/Loveleet/lab_live/settings/secrets/actions" target="_blank" rel="noopener noreferrer" className="underline font-medium">Settings → Secrets → Actions</a> → <code className="bg-blue-200/60 dark:bg-blue-800/60 px-1 rounded">API_BASE_URL</code> = your backend URL (e.g. <code className="bg-blue-200/60 dark:bg-blue-800/60 px-1 rounded">http://150.241.244.130:10000</code>, no trailing slash).</li>
+                        <li>Add secret <a href="https://github.com/Loveleet/lab_live/settings/secrets/actions" target="_blank" rel="noopener noreferrer" className="underline font-medium">Settings → Secrets → Actions</a> → <code className="bg-blue-200/60 dark:bg-blue-800/60 px-1 rounded">API_BASE_URL</code> = your backend URL (e.g. <code className="bg-blue-200/60 dark:bg-blue-800/60 px-1 rounded">http://167.104.222.209:10000</code>, no trailing slash).</li>
                         <li><a href="https://github.com/Loveleet/lab_live/actions/workflows/deploy-frontend-pages.yml" target="_blank" rel="noopener noreferrer" className="underline font-medium">Run &quot;Deploy frontend to GitHub Pages&quot;</a>, then hard-refresh this page.</li>
                       </ol>
                     </div>

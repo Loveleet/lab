@@ -109,7 +109,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:10000",
-  "http://150.241.244.130:10000", // Cloud (when frontend is served from same server)
+  "http://167.104.222.209:10000", // Cloud
   "https://loveleet.github.io",   // GitHub Pages (frontend hosted by GitHub)
   "https://lab-anish.vercel.app",
   "https://clubinfotech.com",
@@ -153,10 +153,16 @@ app.use("/logs", (req, res, next) => {
 });
 
 // ✅ Database Configuration — NO credentials in file. Use DB_* or DATABASE_URL in env.
+function isLanDbHost(host) {
+  if (!host || host === 'localhost' || host === '127.0.0.1') return true;
+  if (host === '150.241.245.36' || host === '192.168.29.128') return true;
+  return /^(192\.168|10\.|172\.(1[6-9]|2\d|3[01])\.)\d+\.\d+$/.test(host);
+}
+
 function buildDbConfig() {
   const dbHost = process.env.DB_HOST || 'localhost';
   const skipRewrite = String(process.env.SKIP_DB_HOST_REWRITE || '').toLowerCase() === 'true';
-  const host = (!skipRewrite && dbHost === '150.241.244.130' ? 'localhost' : dbHost);
+  const host = (!skipRewrite && dbHost === '167.104.222.209' ? 'localhost' : dbHost);
   return {
     host,
     port: parseInt(process.env.DB_PORT || '5432', 10),
@@ -174,7 +180,7 @@ const dbConfig = buildDbConfig();
 function getConnectionConfigs() {
   let databaseUrl = process.env.DATABASE_URL;
   const skipRewrite = String(process.env.SKIP_DB_HOST_REWRITE || '').toLowerCase() === 'true';
-  if (!skipRewrite && databaseUrl && databaseUrl.includes('150.241.244.130')) {
+  if (!skipRewrite && databaseUrl && databaseUrl.includes('167.104.222.209')) {
     databaseUrl = databaseUrl.replace(/150\.241\.244\.130/g, '127.0.0.1');
     console.log("[DB] DATABASE_URL host rewritten to 127.0.0.1 (same-machine connection)");
   }
@@ -185,16 +191,8 @@ function getConnectionConfigs() {
       { connectionString: databaseUrl, ssl: false, connectionTimeoutMillis: 15000 },
     ];
   }
-  const isLocal = !dbConfig.host || dbConfig.host === 'localhost' || dbConfig.host === '127.0.0.1';
-  if (isLocal) {
-    return [
-      { ...dbConfig, ssl: false },
-      { ...dbConfig, ssl: { rejectUnauthorized: false } },
-      { ...dbConfig, ssl: { rejectUnauthorized: false, sslmode: 'require' } },
-    ];
-  }
-  // 150.241.245.36 — exact same as server copy.js: single config, ssl: false, 30s timeout (Render uses this and gets data)
-  if (dbConfig.host === '150.241.245.36') {
+  // LAN / VM Postgres (e.g. 192.168.29.128 fallback VM) — no SSL
+  if (isLanDbHost(dbConfig.host)) {
     return [{ ...dbConfig, ssl: false }];
   }
   return [
@@ -484,7 +482,7 @@ app.get("/api/debug", async (req, res) => {
 // ✅ API: Fetch All Trades
 // Helper: true if error is "table does not exist"
 function isMissingTable(err) {
-  return err && (err.code === "42P01" || (err.message && err.message.includes("does not exist")));
+  return err && err.code === "42P01";
 }
 
 // ✅ API: Fetch SuperTrend Signals (return empty if table missing or DB not connected — avoid 500)
@@ -514,6 +512,7 @@ const RUNNING_TRADE_TYPES = ["running", "hedge_hold", "assigned", "assign"];
 const CLOSED_TRADE_TYPES = ["close", "hedge_close"];
 const RUNNING_TYPE_LIST = RUNNING_TRADE_TYPES.map((t) => `'${t}'`).join(", ");
 const CLOSED_TYPE_LIST = CLOSED_TRADE_TYPES.map((t) => `'${t}'`).join(", ");
+const CLOSED_AT_SQL = `COALESCE(NULLIF(BTRIM(operator_close_time::text), '')::timestamptz, candel_time)`;
 
 // ── Server-side closed trades file (JSONL = append new closes without rewriting all) ──
 const CLOSED_FILE_CACHE_VERSION = 2;
@@ -654,7 +653,7 @@ function mergeClosedTradeRows(existing, incoming) {
 async function queryDbClosedMeta(pool) {
   const result = await pool.query(`
     SELECT COUNT(*)::int AS closed_count,
-           MAX(COALESCE(created_at, candel_time::timestamptz)) AS last_closed_at
+           MAX(${CLOSED_AT_SQL}) AS last_closed_at
     FROM alltraderecords
     WHERE type IN (${CLOSED_TYPE_LIST})
   `);
@@ -671,7 +670,7 @@ async function queryClosedTradesPage(pool, page, limit = CLOSED_FILE_PAGE_SIZE) 
     `
     SELECT * FROM alltraderecords
     WHERE type IN (${CLOSED_TYPE_LIST})
-    ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+    ORDER BY ${CLOSED_AT_SQL} ASC
     LIMIT $1 OFFSET $2
     `,
     [limit, offset]
@@ -687,8 +686,8 @@ async function queryClosedTradesSince(pool, sinceAt, { inclusive = false } = {})
     `
     SELECT * FROM alltraderecords
     WHERE type IN (${CLOSED_TYPE_LIST})
-      AND COALESCE(created_at, candel_time::timestamptz) ${cmp} $1
-    ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+      AND ${CLOSED_AT_SQL} ${cmp} $1
+    ORDER BY ${CLOSED_AT_SQL} ASC
     `,
     [sinceDate.toISOString()]
   );
@@ -701,7 +700,7 @@ async function queryClosedTradesTail(pool, limit) {
     `
     SELECT * FROM alltraderecords
     WHERE type IN (${CLOSED_TYPE_LIST})
-    ORDER BY COALESCE(created_at, candel_time::timestamptz) DESC
+    ORDER BY ${CLOSED_AT_SQL} DESC
     LIMIT $1
     `,
     [n]
@@ -928,7 +927,7 @@ app.get("/api/trades/meta", async (req, res) => {
         COUNT(*)::int AS total_count,
         COUNT(*) FILTER (WHERE type IN (${RUNNING_TYPE_LIST}))::int AS running_count,
         COUNT(*) FILTER (WHERE type IN (${CLOSED_TYPE_LIST}))::int AS closed_count,
-        MAX(COALESCE(created_at, candel_time::timestamptz)) FILTER (WHERE type IN (${CLOSED_TYPE_LIST})) AS last_closed_at
+        MAX(${CLOSED_AT_SQL}) FILTER (WHERE type IN (${CLOSED_TYPE_LIST})) AS last_closed_at
       FROM alltraderecords
     `);
     const row = result.rows[0] || {};
@@ -1018,8 +1017,8 @@ app.get("/api/trades/closed", async (req, res) => {
         `
         SELECT * FROM alltraderecords
         WHERE type IN (${CLOSED_TYPE_LIST})
-          AND COALESCE(created_at, candel_time::timestamptz) ${cmp} $1
-        ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+          AND ${CLOSED_AT_SQL} ${cmp} $1
+        ORDER BY ${CLOSED_AT_SQL} ASC
         LIMIT $2
         `,
         [sinceDate.toISOString(), limit]
@@ -1042,7 +1041,7 @@ app.get("/api/trades/closed", async (req, res) => {
       `
       SELECT * FROM alltraderecords
       WHERE type IN (${CLOSED_TYPE_LIST})
-      ORDER BY COALESCE(created_at, candel_time::timestamptz) ASC
+      ORDER BY ${CLOSED_AT_SQL} ASC
       LIMIT $1 OFFSET $2
       `,
       [limit, offset]
@@ -1497,6 +1496,12 @@ async function ensureClientsTable(pool) {
   `);
   await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT FALSE;`).catch(() => {});
   await pool.query(`ALTER TABLE clients ALTER COLUMN is_active SET DEFAULT FALSE;`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS phone_number TEXT;`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS email TEXT;`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS telegram_id TEXT;`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`).catch(() => {});
+  await pool.query(`ALTER TABLE clients ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`).catch(() => {});
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_clients_email_unique ON clients(email) WHERE email IS NOT NULL;`).catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_exchange_accounts (
       id                  SERIAL PRIMARY KEY,
@@ -1515,6 +1520,8 @@ async function ensureClientsTable(pool) {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_clients_active ON clients(is_active);`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_exchange_accounts_client ON client_exchange_accounts(client_id);`).catch(() => {});
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_client_exchange_accounts_exchange ON client_exchange_accounts(exchange);`).catch(() => {});
+  await pool.query(`ALTER TABLE client_exchange_accounts ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`).catch(() => {});
+  await pool.query(`ALTER TABLE client_exchange_accounts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`).catch(() => {});
 
   try {
     const cols = await pool.query(`
@@ -1891,8 +1898,10 @@ async function ensureLiveAutoActiveColumns(pool) {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE liveautoactive ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE;`).catch(() => {});
   await pool.query(`ALTER TABLE liveautoactive ADD COLUMN IF NOT EXISTS buy_active BOOLEAN NOT NULL DEFAULT TRUE;`).catch(() => {});
   await pool.query(`ALTER TABLE liveautoactive ADD COLUMN IF NOT EXISTS sell_active BOOLEAN NOT NULL DEFAULT TRUE;`).catch(() => {});
+  await pool.query(`ALTER TABLE liveautoactive ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();`).catch(() => {});
 }
 
 app.get("/api/auto-execute", async (req, res) => {
@@ -1971,6 +1980,10 @@ async function ensureManageAutoPositionTable(pool) {
   await pool.query(`
     ALTER TABLE ${MANAGE_AUTO_POSITION_TABLE}
     ADD COLUMN IF NOT EXISTS side TEXT DEFAULT 'BOTH';
+  `).catch(() => {});
+  await pool.query(`
+    ALTER TABLE ${MANAGE_AUTO_POSITION_TABLE}
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `).catch(() => {});
 }
 

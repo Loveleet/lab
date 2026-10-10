@@ -12,7 +12,7 @@ So: **“here” = only the UI. No API, no DB, no api_signals.py.**
 
 ---
 
-### On the cloud server (150.241.244.130 / api.clubinfotech.com)
+### On the cloud server (167.104.222.209 / api.clubinfotech.com)
 
 Everything below runs on **your cloud machine** (e.g. Ubuntu). Nginx in front listens on 80/443 and forwards to the Node app.
 
@@ -66,7 +66,7 @@ So the **request is reaching api.clubinfotech.com**, but the server responds wit
 SSH in and check the process and port:
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 
 # Is the app running?
 sudo systemctl status lab-trading-dashboard

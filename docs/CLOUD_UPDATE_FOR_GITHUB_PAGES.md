@@ -7,14 +7,14 @@ When GitHub Pages (loveleet.github.io/lab_live) shows "No trade records" and zer
 From your laptop (in `lab-trading-dashboard`):
 
 ```bash
-./scripts/copy-server-to-cloud.sh root 150.241.244.130 /root/lab-trading-dashboard
+./scripts/copy-server-to-cloud.sh root 167.104.222.209 /root/lab-trading-dashboard
 ```
 
 Or copy manually:
 
 ```bash
-scp server/server.js root@150.241.244.130:/root/lab-trading-dashboard/server/
-ssh root@150.241.244.130 "sudo systemctl restart lab-trading-dashboard"
+scp server/server.js root@167.104.222.209:/root/lab-trading-dashboard/server/
+ssh root@167.104.222.209 "sudo systemctl restart lab-trading-dashboard"
 ```
 
 (Use your actual server path if different, e.g. `/opt/apps/lab-trading-dashboard/server/`.)
@@ -30,7 +30,7 @@ Example:
 
 ```bash
 # On cloud: sudo nano /etc/lab-trading-dashboard.secrets.env
-DB_HOST=150.241.244.130
+DB_HOST=167.104.222.209
 DB_PORT=5432
 DB_USER=lab
 DB_PASSWORD=your_password
@@ -39,7 +39,7 @@ PORT=10000
 NODE_ENV=production
 ```
 
-If you don’t set DB_* vars, the server defaults to host **150.241.244.130** and database **olab**.
+If you don’t set DB_* vars, the server defaults to host **167.104.222.209** and database **olab**.
 
 ## 3. Restart the app on the cloud
 
@@ -63,13 +63,13 @@ curl -s http://localhost:10000/api/trades | head -c 300
 From your laptop (use your backend URL — cloud IP or domain):
 
 ```bash
-curl -s http://150.241.244.130:10000/api/server-info
-curl -s http://150.241.244.130:10000/api/trades
+curl -s http://167.104.222.209:10000/api/server-info
+curl -s http://167.104.222.209:10000/api/trades
 ```
 
 ## 5. GitHub Pages
 
-- Set GitHub secret **API_BASE_URL** = your backend URL (e.g. `http://150.241.244.130:10000` or `https://your-domain.com`), no trailing slash.
+- Set GitHub secret **API_BASE_URL** = your backend URL (e.g. `http://167.104.222.209:10000` or `https://your-domain.com`), no trailing slash.
 - Run **Deploy frontend to GitHub Pages** (or push to trigger it).
 - Open https://loveleet.github.io/lab_live/ and hard‑refresh (Ctrl+Shift+R).
 

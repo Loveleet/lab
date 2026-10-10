@@ -1,6 +1,6 @@
 # Use GitHub Pages only (https://loveleet.github.io/lab_live/)
 
-To have the app **only** at **https://loveleet.github.io/lab_live/** (and not use http://150.241.244.130:10000), the **API must be HTTPS**. Browsers block HTTPS pages from calling HTTP APIs (mixed content).
+To have the app **only** at **https://loveleet.github.io/lab_live/** (and not use http://167.104.222.209:10000), the **API must be HTTPS**. Browsers block HTTPS pages from calling HTTP APIs (mixed content).
 
 You need **one domain** for the API (e.g. `api.yourdomain.com` or `lab.yourdomain.com`) pointed at your server. Then follow the steps below.
 
@@ -11,14 +11,14 @@ You need **one domain** for the API (e.g. `api.yourdomain.com` or `lab.yourdomai
 - Buy a domain (e.g. from Namecheap, GoDaddy, Cloudflare, etc.) or use a subdomain you already have.
 - In DNS, add an **A record**:
   - **Name:** e.g. `api` or `lab` (so you get `api.yourdomain.com` or `lab.yourdomain.com`)
-  - **Value:** `150.241.244.130`
-- Wait a few minutes, then check: `ping api.yourdomain.com` → should show `150.241.244.130`.
+  - **Value:** `167.104.222.209`
+- Wait a few minutes, then check: `ping api.yourdomain.com` → should show `167.104.222.209`.
 
 ---
 
 ## 2. On the cloud server: nginx + HTTPS
 
-SSH in: `ssh root@150.241.244.130`
+SSH in: `ssh root@167.104.222.209`
 
 ```bash
 # Install
@@ -86,7 +86,7 @@ Open **https://loveleet.github.io/lab_live/** and hard refresh (Ctrl+Shift+R). L
 
 | Step | What |
 |------|------|
-| 1 | Domain A record → `150.241.244.130` |
+| 1 | Domain A record → `167.104.222.209` |
 | 2 | On cloud: nginx + certbot → API at `https://api.yourdomain.com` |
 | 3 | CORS: already allows GitHub Pages (no change needed) |
 | 4 | GitHub: API_BASE_URL = `https://api.yourdomain.com`, run Deploy workflow |
@@ -102,10 +102,10 @@ So that typing **clubinfotech.com** (or **www.clubinfotech.com**) sends users to
 
 ### 1. DNS (at GoDaddy or your registrar)
 
-- **A record** for `clubinfotech.com` → `150.241.244.130`
-- **A record** for `www` (or CNAME `www` → `clubinfotech.com`) → `150.241.244.130`
+- **A record** for `clubinfotech.com` → `167.104.222.209`
+- **A record** for `www` (or CNAME `www` → `clubinfotech.com`) → `167.104.222.209`
 
-Check: `ping clubinfotech.com` and `ping www.clubinfotech.com` → both show `150.241.244.130`.
+Check: `ping clubinfotech.com` and `ping www.clubinfotech.com` → both show `167.104.222.209`.
 
 ### 2. Nginx on the cloud server
 

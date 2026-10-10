@@ -31,7 +31,7 @@ jobs:
 
       - name: Write api-config.json for GitHub Pages runtime
         run: |
-          # API_BASE_URL secret = fixed backend URL (cloud IP or domain, e.g. http://150.241.244.130:10000)
+          # API_BASE_URL secret = fixed backend URL (cloud IP or domain, e.g. http://167.104.222.209:10000)
           API_URL="${{ secrets.API_BASE_URL }}"
           API_URL="${API_URL%/}"
           if [ -n "$API_URL" ]; then
@@ -39,7 +39,7 @@ jobs:
             echo "Wrote api-config.json with API_BASE_URL"
           else
             echo "{}" > public/api-config.json
-            echo "No API_BASE_URL secret — set it to your cloud URL (e.g. http://150.241.244.130:10000) for GitHub Pages to show data"
+            echo "No API_BASE_URL secret — set it to your cloud URL (e.g. http://167.104.222.209:10000) for GitHub Pages to show data"
           fi
           cat public/api-config.json
 

@@ -7,7 +7,7 @@
 Your **Render** setup used a database that had all the tables and data (`alltraderecords`, `machines`, `active_loss`, `signalprocessinglogs`, etc.).  
 On the cloud app server we use a **local** PostgreSQL that was created empty, so the dashboard shows zeros.
 
-To get the same data showing on the cloud, copy the database from the server that has it (**150.241.245.36**) into the app server (**150.241.244.130**).
+To get the same data showing on the cloud, copy the database from the server that has it (**150.241.245.36**) into the app server (**167.104.222.209**).
 
 ---
 
@@ -29,17 +29,17 @@ PGPASSWORD='<set-on-server-only>' pg_dump -h localhost -U postgres -d labdb2 -F 
 
 ### Step 2: Copy the dump to the app server
 
-From your **laptop** (or from 150.241.245.36 if it can reach 150.241.244.130):
+From your **laptop** (or from 150.241.245.36 if it can reach 167.104.222.209):
 
 ```bash
 scp root@150.241.245.36:/tmp/labdb2.dump /tmp/
-scp /tmp/labdb2.dump root@150.241.244.130:/tmp/
+scp /tmp/labdb2.dump root@167.104.222.209:/tmp/
 ```
 
-### Step 3: On the app server (150.241.244.130) – restore
+### Step 3: On the app server (167.104.222.209) – restore
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 
 # Drop existing labdb2 and recreate (so restore is clean)
 sudo -u postgres psql -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'labdb2' AND pid <> pg_backend_pid();"
@@ -53,16 +53,16 @@ sudo -u postgres pg_restore -d labdb2 -F c /tmp/labdb2.dump
 sudo systemctl restart lab-trading-dashboard
 ```
 
-Then refresh **http://150.241.244.130:10000** – the dashboard should show the same data as on Render.
+Then refresh **http://167.104.222.209:10000** – the dashboard should show the same data as on Render.
 
 ---
 
 ## Option B: Direct dump from app server (if it can reach 150.241.245.36:5432)
 
-If the app server can connect to the DB server (firewall allows 150.241.244.130 → 150.241.245.36:5432), run this **on the app server**:
+If the app server can connect to the DB server (firewall allows 167.104.222.209 → 150.241.245.36:5432), run this **on the app server**:
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 
 PGPASSWORD='<set-on-server-only>' pg_dump -h 150.241.245.36 -U postgres -d labdb2 -F c -f /tmp/labdb2.dump
 sudo -u postgres psql -c "DROP DATABASE IF EXISTS labdb2;"

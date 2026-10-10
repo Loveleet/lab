@@ -2,7 +2,7 @@
 
 When **https://loveleet.github.io/lab_live/** shows "No trade records" but local works, follow this checklist.
 
-The frontend loads the API URL from **api-config.json** (written at deploy from the **API_BASE_URL** secret). Use a **fixed backend URL**: your cloud IP (e.g. `http://150.241.244.130:10000`) or your domain (e.g. `https://api.yourdomain.com`). No tunnel.
+The frontend loads the API URL from **api-config.json** (written at deploy from the **API_BASE_URL** secret). Use a **fixed backend URL**: your cloud IP (e.g. `http://167.104.222.209:10000`) or your domain (e.g. `https://api.yourdomain.com`). No tunnel.
 
 ---
 
@@ -10,11 +10,11 @@ The frontend loads the API URL from **api-config.json** (written at deploy from 
 
 Open **https://loveleet.github.io/lab_live/** → **F12** → **Console** tab. Look for:
 
-1. **`[LAB] API base URL`** or **`[LAB] API base from api-config.json`** — Should show your backend URL (e.g. `http://150.241.244.130:10000`). If empty, **api-config.json** didn't load or **API_BASE_URL** secret isn't set.
+1. **`[LAB] API base URL`** or **`[LAB] API base from api-config.json`** — Should show your backend URL (e.g. `http://167.104.222.209:10000`). If empty, **api-config.json** didn't load or **API_BASE_URL** secret isn't set.
 
 2. **`[LAB] Fetching api-config.json:`** — Should show `https://loveleet.github.io/lab_live/api-config.json`. If you see **404**, the file wasn't deployed correctly.
 
-3. **`[DEBUG] Fetching trades from:`** — Should show full URL like `http://150.241.244.130:10000/api/trades` (or your domain).
+3. **`[DEBUG] Fetching trades from:`** — Should show full URL like `http://167.104.222.209:10000/api/trades` (or your domain).
 
 4. **`[DEBUG] Trades response status:`** — Check the status:
    - **200 OK** → API works, but data might be empty (check cloud DB).
@@ -35,8 +35,8 @@ Open in browser: **https://loveleet.github.io/lab_live/api-config.json**
 Should return JSON like:
 ```json
 {
-  "apiBaseUrl": "http://150.241.244.130:10000",
-  "tunnelUrl": "http://150.241.244.130:10000"
+  "apiBaseUrl": "http://167.104.222.209:10000",
+  "tunnelUrl": "http://167.104.222.209:10000"
 }
 ```
 (Or your HTTPS domain if you set one.)
@@ -44,13 +44,13 @@ Should return JSON like:
 If **404**: The deploy workflow didn't place it correctly. Check:
 - **GitHub Actions** → **Deploy frontend to GitHub Pages** → latest run → check if "Place api-config.json under base path" step succeeded.
 
-If **empty `{}`**: **API_BASE_URL** secret isn't set in GitHub. Set it to your backend URL (e.g. `http://150.241.244.130:10000`).
+If **empty `{}`**: **API_BASE_URL** secret isn't set in GitHub. Set it to your backend URL (e.g. `http://167.104.222.209:10000`).
 
 ---
 
 ## Step 3: Verify Cloud Server Config
 
-**On the cloud (150.241.244.130):**
+**On the cloud (167.104.222.209):**
 
 ```bash
 curl -s http://localhost:10000/api/server-info | python3 -m json.tool
@@ -71,8 +71,8 @@ From your laptop or browser:
 
 ```bash
 # Replace with your actual API URL (cloud IP or domain)
-curl -s http://150.241.244.130:10000/api/server-info | python3 -m json.tool
-curl -s http://150.241.244.130:10000/api/trades | python3 -m json.tool | head -20
+curl -s http://167.104.222.209:10000/api/server-info | python3 -m json.tool
+curl -s http://167.104.222.209:10000/api/trades | python3 -m json.tool | head -20
 ```
 
 Should return server-info and a non-empty `trades` array. If this fails, the cloud server or DB is down.
@@ -83,7 +83,7 @@ Should return server-info and a non-empty `trades` array. If this fails, the clo
 
 **GitHub repo** → **Settings** → **Secrets and variables** → **Actions** → **API_BASE_URL**:
 
-- Value = your **backend URL** (e.g. `http://150.241.244.130:10000` or `https://your-domain.com`), **no trailing slash**.
+- Value = your **backend URL** (e.g. `http://167.104.222.209:10000` or `https://your-domain.com`), **no trailing slash**.
 - After changing, run **Deploy frontend to GitHub Pages** workflow.
 
 ---
@@ -103,7 +103,7 @@ Should return server-info and a non-empty `trades` array. If this fails, the clo
 | api-config.json 404 | File not placed under `/lab_live/` | Check deploy workflow step "Place api-config.json under base path" |
 | CORS blocked | Cloud doesn't allow `https://loveleet.github.io` | Deploy latest server.js, restart cloud server |
 | 200 but empty trades | Cloud using wrong DB | Set **DB_NAME=olab** in cloud secrets (e.g. `/etc/lab-trading-dashboard.secrets.env`) |
-| Network error | Backend URL wrong or server down | Check cloud: `curl http://150.241.244.130:10000/api/health` |
+| Network error | Backend URL wrong or server down | Check cloud: `curl http://167.104.222.209:10000/api/health` |
 
 ---
 
@@ -119,5 +119,5 @@ fetch(api("/api/trades")).then(r => r.json()).then(d => console.log("Trades:", d
 
 ## Still Not Working?
 
-1. **Cloud logs:** `ssh root@150.241.244.130 "journalctl -u lab-trading-dashboard -n 50 --no-pager"`
-2. **Direct API (no frontend):** `curl http://150.241.244.130:10000/api/trades` from your laptop — should return JSON if firewall allows.
+1. **Cloud logs:** `ssh root@167.104.222.209 "journalctl -u lab-trading-dashboard -n 50 --no-pager"`
+2. **Direct API (no frontend):** `curl http://167.104.222.209:10000/api/trades` from your laptop — should return JSON if firewall allows.

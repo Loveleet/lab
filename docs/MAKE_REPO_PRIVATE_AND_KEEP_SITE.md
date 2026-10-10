@@ -79,7 +79,7 @@ Copy the contents of `dist/` to your server, e.g. where nginx serves the site:
 
 ```bash
 # Example: deploy to cloud server
-rsync -avz --delete dist/ root@150.241.244.130:/var/www/lab-dashboard/
+rsync -avz --delete dist/ root@167.104.222.209:/var/www/lab-dashboard/
 ```
 
 (Use your real path if different.)

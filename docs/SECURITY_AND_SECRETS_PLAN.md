@@ -49,9 +49,9 @@ You have a fixed cloud IP; the app will talk to the backend at that IP (and opti
 | Where | What to do |
 |-------|------------|
 | **server.js** | Remove or comment out: `GET /api/tunnel-url`, `TUNNEL_URL_FILE`, `TUNNEL_LOG_PATHS`, `TUNNEL_URL_REGEX`, and any logic that reads cloudflared logs. Update comments that mention “Cloudflare tunnel” or “GitHub Pages via tunnel”. |
-| **CORS** | Keep `allowedOrigins` but adjust: if the frontend is only ever at `http://150.241.244.130:10000` (or your domain), you can list only that and `http://localhost:5173` for local dev. Remove `https://loveleet.github.io` if you are no longer using GitHub Pages. |
-| **Frontend config (config.js)** | Stop using `api-config.json` for a “tunnel URL”. Use a **fixed API base URL**: build-time env (e.g. `VITE_API_BASE_URL=http://150.241.244.130:10000` for cloud, or empty for same-origin). Remove or simplify `loadRuntimeApiConfig()` and any 2‑minute refetch of api-config. |
-| **GitHub Actions** | If you no longer use GitHub Pages for this app: remove or disable workflows that deploy to Pages and that write `api-config.json` from a tunnel URL. If you still use Pages but with cloud IP: set `API_BASE_URL` (or equivalent) to `http://150.241.244.130:10000` (or your HTTPS URL) and stop any “tunnel URL” update step. |
+| **CORS** | Keep `allowedOrigins` but adjust: if the frontend is only ever at `http://167.104.222.209:10000` (or your domain), you can list only that and `http://localhost:5173` for local dev. Remove `https://loveleet.github.io` if you are no longer using GitHub Pages. |
+| **Frontend config (config.js)** | Stop using `api-config.json` for a “tunnel URL”. Use a **fixed API base URL**: build-time env (e.g. `VITE_API_BASE_URL=http://167.104.222.209:10000` for cloud, or empty for same-origin). Remove or simplify `loadRuntimeApiConfig()` and any 2‑minute refetch of api-config. |
+| **GitHub Actions** | If you no longer use GitHub Pages for this app: remove or disable workflows that deploy to Pages and that write `api-config.json` from a tunnel URL. If you still use Pages but with cloud IP: set `API_BASE_URL` (or equivalent) to `http://167.104.222.209:10000` (or your HTTPS URL) and stop any “tunnel URL” update step. |
 | **Scripts** | `update-github-secret-from-tunnel.sh`, `cron-tunnel-update.sh`, `install-cron-tunnel-update.sh`, `start-https-tunnel-for-pages.sh` — no longer needed; can be removed or left unused. |
 | **Docs** | Update DEBUG_GITHUB_PAGES, GITHUB_PAGES_WORK_WITH_DATA, CLOUD_UPDATE_FOR_GITHUB_PAGES, etc., to say “use cloud IP (or domain)” and remove Cloudflare/tunnel instructions. |
 
@@ -112,13 +112,13 @@ This is the standard, secure approach. A “better” alternative would be a pro
 
 **Why:** So traffic (including login cookies and API calls) is encrypted. Browsers treat HTTPS as required for secure cookies in production.
 
-**Assumptions:** You have (or will have) a **domain name** pointing to your cloud IP (e.g. `lab.yourdomain.com` → `150.241.244.130`). Without a domain, Let's Encrypt cannot issue a certificate (it needs a hostname to validate).
+**Assumptions:** You have (or will have) a **domain name** pointing to your cloud IP (e.g. `lab.yourdomain.com` → `167.104.222.209`). Without a domain, Let's Encrypt cannot issue a certificate (it needs a hostname to validate).
 
 **Plan:**
 
 | Step | What to do |
 |------|------------|
-| **1. Domain** | Point a DNS A record (e.g. `lab.yourdomain.com`) to your cloud server IP `150.241.244.130`. Wait for DNS to propagate. |
+| **1. Domain** | Point a DNS A record (e.g. `lab.yourdomain.com`) to your cloud server IP `167.104.222.209`. Wait for DNS to propagate. |
 | **2. Install nginx + certbot** | On the cloud (Ubuntu): `sudo apt update && sudo apt install -y nginx certbot python3-certbot-nginx`. |
 | **3. Nginx as reverse proxy** | Configure nginx to proxy to your Node app. Example: `proxy_pass http://127.0.0.1:10000` for `/` and `/api` and `/auth`. Node keeps listening on `localhost:10000`; nginx listens on 80/443. |
 | **4. Get HTTPS cert** | Run `sudo certbot --nginx -d lab.yourdomain.com`. Certbot configures nginx for HTTPS and auto-renewal. |

@@ -1,6 +1,6 @@
 # Connect Cloud Server to Your Database (so data shows like on Render)
 
-On **Render**, your app was connected to a database (Render PostgreSQL or an external one). On your **cloud server** (150.241.244.130), the API is not connected to that database yet, so the dashboard shows zeros.
+On **Render**, your app was connected to a database (Render PostgreSQL or an external one). On your **cloud server** (167.104.222.209), the API is not connected to that database yet, so the dashboard shows zeros.
 
 ---
 
@@ -24,7 +24,7 @@ From your **Render** dashboard:
 SSH into the server and edit the env file:
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 sudo nano /etc/lab-trading-dashboard.env
 ```
 
@@ -62,4 +62,4 @@ You should see something like `Connected to PostgreSQL successfully`. If you see
 
 ## 4. Reload the dashboard
 
-Refresh **http://150.241.244.130:10000**. The dashboard should now show the same data as when you were using Render, because the cloud API is using the same database.
+Refresh **http://167.104.222.209:10000**. The dashboard should now show the same data as when you were using Render, because the cloud API is using the same database.

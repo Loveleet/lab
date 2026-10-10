@@ -15,7 +15,7 @@ So by default you can use **your login password** in the modal. You only need to
 
 1. SSH to the cloud server:
    ```bash
-   ssh root@150.241.244.130
+   ssh root@167.104.222.209
    ```
 
 2. Connect to PostgreSQL (use the same database as your app, e.g. `olab` or `labdb2`). Check your app’s config or `/etc/lab-trading-dashboard.secrets.env` for `DB_NAME`:

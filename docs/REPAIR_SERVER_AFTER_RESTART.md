@@ -2,7 +2,7 @@
 
 If you restarted the server (or the machine) and **api.clubinfotech.com** or **/api/trade** is not working, follow these steps on the **cloud** to get the Node API (server.js) running again.
 
-**Cloud server:** `root@150.241.244.130`
+**Cloud server:** `root@167.104.222.209`
 
 ---
 
@@ -12,8 +12,8 @@ If you restarted the server (or the machine) and **api.clubinfotech.com** or **/
 
 ```bash
 cd "/Volumes/Loveleet /Work/Binance/LAB_LIVE_NEW/lab_live/lab-trading-dashboard"
-scp server/server.js root@150.241.244.130:/root/lab-trading-dashboard/server/
-ssh root@150.241.244.130 "sudo systemctl restart lab-trading-dashboard"
+scp server/server.js root@167.104.222.209:/root/lab-trading-dashboard/server/
+ssh root@167.104.222.209 "sudo systemctl restart lab-trading-dashboard"
 ```
 
 See **[docs/TRANSFER_SERVER_JS_TO_CLOUD.md](TRANSFER_SERVER_JS_TO_CLOUD.md)** for the full reference.
@@ -27,7 +27,7 @@ Run from the **lab-trading-dashboard** folder on your machine:
 ```bash
 cd "/Volumes/Loveleet /Work/Binance/LAB_LIVE_NEW/lab_live/lab-trading-dashboard"
 
-scp scripts/lab-trading-dashboard.service scripts/api-signals.service scripts/enable-services-on-boot.sh scripts/repair-and-start-server.sh scripts/check-python-signals-on-cloud.sh root@150.241.244.130:/root/lab-trading-dashboard/scripts/
+scp scripts/lab-trading-dashboard.service scripts/api-signals.service scripts/enable-services-on-boot.sh scripts/repair-and-start-server.sh scripts/check-python-signals-on-cloud.sh root@167.104.222.209:/root/lab-trading-dashboard/scripts/
 ```
 
 ---
@@ -35,7 +35,7 @@ scp scripts/lab-trading-dashboard.service scripts/api-signals.service scripts/en
 ## 2. Run on the cloud (SSH in, then run)
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 ```
 
 Then on the server:
@@ -125,13 +125,13 @@ From your **laptop**, copy the script to the cloud and run it there:
 
 ```bash
 # Copy the script to the cloud (from your repo: lab-trading-dashboard/)
-scp scripts/repair-and-start-server.sh root@150.241.244.130:/root/lab-trading-dashboard/scripts/
+scp scripts/repair-and-start-server.sh root@167.104.222.209:/root/lab-trading-dashboard/scripts/
 
 # SSH in and run it
-ssh root@150.241.244.130 "cd /root/lab-trading-dashboard && sudo bash scripts/repair-and-start-server.sh"
+ssh root@167.104.222.209 "cd /root/lab-trading-dashboard && sudo bash scripts/repair-and-start-server.sh"
 ```
 
-Or, if you’re **already on the cloud** (e.g. after `ssh root@150.241.244.130`):
+Or, if you’re **already on the cloud** (e.g. after `ssh root@167.104.222.209`):
 
 ```bash
 cd /root/lab-trading-dashboard
@@ -153,7 +153,7 @@ The script will:
 ### 1. SSH to the cloud
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 ```
 
 ### 2. Check if the service exists and its status
@@ -177,7 +177,7 @@ ls -la node_modules/express
 
   ```bash
   # From your laptop, in the repo:
-  rsync -avz lab-trading-dashboard/server/ root@150.241.244.130:/root/lab-trading-dashboard/server/
+  rsync -avz lab-trading-dashboard/server/ root@167.104.222.209:/root/lab-trading-dashboard/server/
   ```
 
 - If `node_modules` is missing or broken:
@@ -224,7 +224,7 @@ If the service didn’t exist at all, copy it from your repo and install:
 
 ```bash
 # From your laptop:
-scp lab-trading-dashboard/scripts/lab-trading-dashboard.service root@150.241.244.130:/tmp/
+scp lab-trading-dashboard/scripts/lab-trading-dashboard.service root@167.104.222.209:/tmp/
 # On cloud:
 sudo cp /tmp/lab-trading-dashboard.service /etc/systemd/system/
 sudo systemctl daemon-reload
@@ -274,7 +274,7 @@ sudo nano /etc/lab-trading-dashboard.secrets.env
 Example:
 
 ```bash
-DB_HOST=150.241.244.130
+DB_HOST=167.104.222.209
 DB_PORT=5432
 DB_USER=lab
 DB_PASSWORD=your_password
@@ -296,7 +296,7 @@ sudo systemctl restart lab-trading-dashboard
 
 | Step | Command / action |
 |------|-------------------|
-| 1 | SSH: `ssh root@150.241.244.130` |
+| 1 | SSH: `ssh root@167.104.222.209` |
 | 2 | **One-time (survive reboot):** `sudo bash /root/lab-trading-dashboard/scripts/enable-services-on-boot.sh` |
 | 3 | **Repair now:** `sudo bash /root/lab-trading-dashboard/scripts/repair-and-start-server.sh` |
 | 4 | If services missing: copy `lab-trading-dashboard.service` and `api-signals.service` to `/etc/systemd/system/`, then `daemon-reload` and run enable script again |

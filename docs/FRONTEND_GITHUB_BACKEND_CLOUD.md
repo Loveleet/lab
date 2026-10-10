@@ -3,7 +3,7 @@
 This setup gives you:
 
 - **Frontend** → Built and deployed by **GitHub** (GitHub Pages) on every push to `main`. No manual upload.
-- **Backend + secrets** → Stay only on the **cloud** (150.241.244.130). Server code and `/etc/lab-trading-dashboard.env` are on the cloud; GitHub never has your secrets.
+- **Backend + secrets** → Stay only on the **cloud** (167.104.222.209). Server code and `/etc/lab-trading-dashboard.env` are on the cloud; GitHub never has your secrets.
 
 ---
 
@@ -31,7 +31,7 @@ Push to main (GitHub)
        ▼
 ┌──────────────────────────────────┐
 │  Cloud server                    │
-│  150.241.244.130:10000           │
+│  167.104.222.209:10000           │
 │  Backend (Node) + secrets in      │
 │  /etc/lab-trading-dashboard.env  │
 └──────────────────────────────────┘
@@ -51,11 +51,11 @@ Push to main (GitHub)
 
 ### 2. (Optional) Set your API URL
 
-If your backend is not at `http://150.241.244.130:10000`, add a repo secret:
+If your backend is not at `http://167.104.222.209:10000`, add a repo secret:
 
 - **Settings → Secrets and variables → Actions → New repository secret**
 - Name: `API_BASE_URL`
-- Value: your backend URL (e.g. `http://150.241.244.130:10000`)
+- Value: your backend URL (e.g. `http://167.104.222.209:10000`)
 
 The workflow uses this when building the frontend so it calls your cloud API.
 
@@ -85,7 +85,7 @@ sudo systemctl restart lab-trading-dashboard
 | What              | Where                    | Updated when                    |
 |-------------------|--------------------------|---------------------------------|
 | Frontend (React)  | GitHub Pages             | Every push to `main`            |
-| Backend (Node)    | Cloud 150.241.244.130    | Only when you deploy to cloud   |
+| Backend (Node)    | Cloud 167.104.222.209    | Only when you deploy to cloud   |
 | Secrets (env)     | Cloud only               | Only when you edit on the server|
 
 ---
@@ -97,7 +97,7 @@ sudo systemctl restart lab-trading-dashboard
   Example: `https://loveleet.github.io/lab_live/`
 
 - **Backend API only:**  
-  `http://150.241.244.130:10000`  
+  `http://167.104.222.209:10000`  
   (Frontend on GitHub Pages calls this automatically.)
 
 ---

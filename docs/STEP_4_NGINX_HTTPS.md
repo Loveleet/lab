@@ -1,11 +1,11 @@
 # Step 4: Nginx on the Cloud (HTTPS) — Step-by-step
 
-Goal: Serve your **backend API** over **HTTPS** using a domain. Your **frontend** can stay on GitHub Pages (e.g. https://loveleet.github.io/lab_live/). This step is about giving the **cloud server** a domain and HTTPS so the API is at e.g. `https://api.yourdomain.com` instead of `http://150.241.244.130:10000`.
+Goal: Serve your **backend API** over **HTTPS** using a domain. Your **frontend** can stay on GitHub Pages (e.g. https://loveleet.github.io/lab_live/). This step is about giving the **cloud server** a domain and HTTPS so the API is at e.g. `https://api.yourdomain.com` instead of `http://167.104.222.209:10000`.
 
 - **Frontend (UI):** https://loveleet.github.io/lab_live/ ← no change
-- **Backend (API):** today = `http://150.241.244.130:10000` → after Step 4 = `https://your-domain.com` (a domain you point to `150.241.244.130`)
+- **Backend (API):** today = `http://167.104.222.209:10000` → after Step 4 = `https://your-domain.com` (a domain you point to `167.104.222.209`)
 
-**Prerequisite:** A **domain or subdomain** (e.g. `api.yourdomain.com` or `lab-api.com`) with an **A record** pointing to your server IP `150.241.244.130`. This is **not** the GitHub Pages URL.
+**Prerequisite:** A **domain or subdomain** (e.g. `api.yourdomain.com` or `lab-api.com`) with an **A record** pointing to your server IP `167.104.222.209`. This is **not** the GitHub Pages URL.
 
 ---
 
@@ -14,14 +14,14 @@ Goal: Serve your **backend API** over **HTTPS** using a domain. Your **frontend*
 1. In your domain registrar or DNS provider (e.g. GoDaddy, Namecheap, Cloudflare DNS, etc.):
    - Add (or edit) an **A record**:
      - **Name/host:** `lab` (for `lab.yourdomain.com`) or `@` (for root) or the subdomain you want
-     - **Value/Target:** `150.241.244.130`
+     - **Value/Target:** `167.104.222.209`
      - **TTL:** 300 or default
 2. Wait 2–10 minutes for DNS to propagate.
 3. **Verify** (from your laptop or the server):
    ```bash
    ping lab.yourdomain.com
    ```
-   You should see `150.241.244.130`. Replace `lab.yourdomain.com` with your actual hostname in all steps below.
+   You should see `167.104.222.209`. Replace `lab.yourdomain.com` with your actual hostname in all steps below.
 
 ---
 
@@ -145,7 +145,7 @@ The Node app must allow requests from `https://lab.yourdomain.com`. Add that ori
      "http://localhost:5173",
      "http://localhost:5174",
      "http://localhost:10000",
-     "http://150.241.244.130:10000",
+     "http://167.104.222.209:10000",
      "https://loveleet.github.io",
      "https://lab.yourdomain.com",   // Your domain (HTTPS)
    ];
@@ -155,7 +155,7 @@ The Node app must allow requests from `https://lab.yourdomain.com`. Add that ori
 
    ```bash
    # From your laptop (in the repo):
-   ./scripts/copy-server-to-cloud.sh root 150.241.244.130 /root/lab-trading-dashboard
+   ./scripts/copy-server-to-cloud.sh root 167.104.222.209 /root/lab-trading-dashboard
    ```
 
    On the server:
@@ -168,7 +168,7 @@ The Node app must allow requests from `https://lab.yourdomain.com`. Add that ori
 
 ## Checklist
 
-- [ ] 4a. Domain A record → `150.241.244.130`; `ping` works
+- [ ] 4a. Domain A record → `167.104.222.209`; `ping` works
 - [ ] 4b. `nginx` + `certbot` installed; nginx running
 - [ ] 4c. Site config in `/etc/nginx/sites-available/lab-trading`; enabled; `http://yourdomain` works
 - [ ] 4d. `certbot --nginx -d yourdomain`; `https://yourdomain` works

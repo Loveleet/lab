@@ -1,7 +1,7 @@
 # Fix: Show real data on the cloud
 
 **Credentials (same as Render / server copy.js):**
-- **Cloud Ubuntu** (150.241.244.130) SSH: `DEPLOY_PASSWORD` in `.env` (set your own server password here)
+- **Cloud Ubuntu** (167.104.222.209) SSH: `DEPLOY_PASSWORD` in `.env` (set your own server password here)
 - **DB server** (150.241.245.36) Postgres: `DB_USER=postgres`, `DB_PASSWORD=<set-on-server-only>`, `DB_NAME=labdb2`, `DB_PORT=5432`, no SSL. The scripts set these on the cloud when pointing at the DB server.
 
 ---
@@ -14,7 +14,7 @@ When you are logged in as root on the DB server (e.g. `root@LAB` or `root@150.24
 cat > /tmp/open-db-port-for-cloud.sh << 'ENDOF'
 #!/usr/bin/env bash
 set -e
-CLOUD_IP="150.241.244.130"
+CLOUD_IP="167.104.222.209"
 echo "Allowing Postgres from $CLOUD_IP..."
 PG_CONF=$(find /etc/postgresql -name postgresql.conf 2>/dev/null | head -1)
 [ -n "$PG_CONF" ] && (grep -q "listen_addresses" "$PG_CONF" || echo "listen_addresses = '*'" | sudo tee -a "$PG_CONF")
@@ -45,7 +45,7 @@ or:
 ./scripts/point-cloud-at-db-server.sh
 ```
 
-Then refresh **http://150.241.244.130:10000** to see real data.
+Then refresh **http://167.104.222.209:10000** to see real data.
 
 ---
 

@@ -1,6 +1,6 @@
 # Get real data on the cloud site
 
-The **Node.js server (server.js) runs only on your cloud** at 150.241.244.130. To show real data, point it at your Postgres database.
+The **Node.js server (server.js) runs only on your cloud** at 167.104.222.209. To show real data, point it at your Postgres database.
 
 ---
 
@@ -19,7 +19,7 @@ Use the connection URL for the database that has your trade data. It looks like:
 SSH in and edit the env file:
 
 ```bash
-ssh root@150.241.244.130
+ssh root@167.104.222.209
 sudo nano /etc/lab-trading-dashboard.env
 ```
 
@@ -44,8 +44,8 @@ sudo systemctl restart lab-trading-dashboard
 
 Wait about 30 seconds, then:
 
-- Open **http://150.241.244.130:10000** in the browser → you should see real data.
-- Or run: `curl http://150.241.244.130:10000/api/debug`  
+- Open **http://167.104.222.209:10000** in the browser → you should see real data.
+- Or run: `curl http://167.104.222.209:10000/api/debug`  
   You should see `"dbSource": "DATABASE_URL (remote)"` and a non-zero `alltraderecords` count.
 
 ---

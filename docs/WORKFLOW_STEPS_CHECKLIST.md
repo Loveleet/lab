@@ -26,7 +26,7 @@ This checklist tracks the steps from **SECURITY_AND_SECRETS_PLAN.md**. Mark each
 ## Step 3: Remove Cloudflare — ✅ DONE
 
 - [x] **3a.** **config.js:** Use fixed API URL only. Removed 2-minute refetch of api-config.json; load once on startup. All comments say "cloud URL" / "fixed API URL", not "tunnel".
-- [x] **3b.** **App.jsx:** API unreachable and "API not configured for GitHub Pages" messages updated — no Cloudflare/tunnel wording; instructions use cloud URL (e.g. `http://150.241.244.130:10000`).
+- [x] **3b.** **App.jsx:** API unreachable and "API not configured for GitHub Pages" messages updated — no Cloudflare/tunnel wording; instructions use cloud URL (e.g. `http://167.104.222.209:10000`).
 - [x] **3c.** **GitHub Actions:**  
   - `deploy-frontend-pages.yml`: comments say "cloud URL", not "tunnel".  
   - `update-api-config.yml`: no longer calls `/api/tunnel-url`; URL from input or secret `API_BASE_URL` only.
@@ -38,7 +38,7 @@ This checklist tracks the steps from **SECURITY_AND_SECRETS_PLAN.md**. Mark each
 
 ## Step 4: Nginx on the cloud (HTTPS) — ⬜ TO DO
 
-- [ ] **4a.** **DNS:** Point a domain (e.g. `lab.yourdomain.com`) to cloud IP `150.241.244.130` (A record). Verify with `ping lab.yourdomain.com`.
+- [ ] **4a.** **DNS:** Point a domain (e.g. `lab.yourdomain.com`) to cloud IP `167.104.222.209` (A record). Verify with `ping lab.yourdomain.com`.
 - [ ] **4b.** **Install nginx + certbot on cloud:**  
   `sudo apt update && sudo apt install -y nginx certbot python3-certbot-nginx`
 - [ ] **4c.** **Nginx config:** Add a server block that proxies `/`, `/api`, `/auth` to `http://127.0.0.1:10000`. Use the existing example in `docs/nginx-lab-trading.conf`; adjust `server_name` to your domain.

@@ -18,14 +18,14 @@
 
 ## Step-by-step fix (run on your machine; commands SSH to the cloud)
 
-Use the same host you always use (e.g. `root@150.241.244.130`). Replace if your user/host is different.
+Use the same host you always use (e.g. `root@167.104.222.209`). Replace if your user/host is different.
 
 ---
 
 ### Step 1: Stop the service so it stops crash-looping
 
 ```bash
-ssh root@150.241.244.130 "sudo systemctl stop api-signals"
+ssh root@167.104.222.209 "sudo systemctl stop api-signals"
 ```
 
 ---
@@ -37,7 +37,7 @@ TA-Lib’s Python package needs the C library installed first. **Option A** uses
 **Option A – Try system package (quick)**
 
 ```bash
-ssh root@150.241.244.130 "sudo apt-get update && sudo apt-get install -y libta-lib-dev"
+ssh root@167.104.222.209 "sudo apt-get update && sudo apt-get install -y libta-lib-dev"
 ```
 
 If that works, skip to Step 3. If you get “Unable to locate package” or similar, use Option B.
@@ -45,7 +45,7 @@ If that works, skip to Step 3. If you get “Unable to locate package” or simi
 **Option B – Build from source**
 
 ```bash
-ssh root@150.241.244.130 "sudo apt-get update && sudo apt-get install -y build-essential wget && cd /tmp && wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib && ./configure --prefix=/usr && make && sudo make install && cd /tmp && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz"
+ssh root@167.104.222.209 "sudo apt-get update && sudo apt-get install -y build-essential wget && cd /tmp && wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz && tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib && ./configure --prefix=/usr && make && sudo make install && cd /tmp && rm -rf ta-lib ta-lib-0.4.0-src.tar.gz"
 ```
 
 ---
@@ -55,13 +55,13 @@ ssh root@150.241.244.130 "sudo apt-get update && sudo apt-get install -y build-e
 The service runs `/usr/bin/python3`. Install everything with that interpreter:
 
 ```bash
-ssh root@150.241.244.130 "cd /root/lab-trading-dashboard/python && /usr/bin/python3 -m pip install --upgrade pip && /usr/bin/python3 -m pip install -r requirements-api-signals.txt && /usr/bin/python3 -m pip install TA-Lib"
+ssh root@167.104.222.209 "cd /root/lab-trading-dashboard/python && /usr/bin/python3 -m pip install --upgrade pip && /usr/bin/python3 -m pip install -r requirements-api-signals.txt && /usr/bin/python3 -m pip install TA-Lib"
 ```
 
 If `requirements-api-signals.txt` is not on the cloud yet, install packages explicitly:
 
 ```bash
-ssh root@150.241.244.130 "cd /root/lab-trading-dashboard/python && /usr/bin/python3 -m pip install flask pandas numpy psutil python-telegram-bot binance-futures-connector TA-Lib"
+ssh root@167.104.222.209 "cd /root/lab-trading-dashboard/python && /usr/bin/python3 -m pip install flask pandas numpy psutil python-telegram-bot binance-futures-connector TA-Lib"
 ```
 
 ---
@@ -69,14 +69,14 @@ ssh root@150.241.244.130 "cd /root/lab-trading-dashboard/python && /usr/bin/pyth
 ### Step 4: Test run (see if any import still fails)
 
 ```bash
-ssh root@150.241.244.130 "cd /root/lab-trading-dashboard/python && timeout 5 /usr/bin/python3 api_signals.py || true"
+ssh root@167.104.222.209 "cd /root/lab-trading-dashboard/python && timeout 5 /usr/bin/python3 api_signals.py || true"
 ```
 
 - If you see the process start and then exit after 5 seconds (timeout), that’s fine – it means imports and startup are OK.
 - If you see a **traceback** (e.g. `ModuleNotFoundError` or `ImportError`), install the missing package the same way, e.g.:
 
   ```bash
-  ssh root@150.241.244.130 "/usr/bin/python3 -m pip install <missing_module_name>"
+  ssh root@167.104.222.209 "/usr/bin/python3 -m pip install <missing_module_name>"
   ```
 
   Then repeat Step 4 until the script starts without import errors.
@@ -86,13 +86,13 @@ ssh root@150.241.244.130 "cd /root/lab-trading-dashboard/python && timeout 5 /us
 ### Step 5: Start the service and check status
 
 ```bash
-ssh root@150.241.244.130 "sudo systemctl start api-signals && sleep 3 && systemctl status api-signals"
+ssh root@167.104.222.209 "sudo systemctl start api-signals && sleep 3 && systemctl status api-signals"
 ```
 
 You want **Active: active (running)**. If it still says **active (auto-restart)** or **exited**, check logs:
 
 ```bash
-ssh root@150.241.244.130 "journalctl -u api-signals -n 60 --no-pager"
+ssh root@167.104.222.209 "journalctl -u api-signals -n 60 --no-pager"
 ```
 
 Fix any remaining missing module or config, then run Step 5 again.
@@ -104,7 +104,7 @@ Fix any remaining missing module or config, then run Step 5 again.
 From your machine:
 
 ```bash
-curl -s http://150.241.244.130:10000/api/calculate-signals/health
+curl -s http://167.104.222.209:10000/api/calculate-signals/health
 ```
 
 Expected: `{"ok":true,"service":"calculate-signals"}` or similar. If you get 502, Node is up but Python isn’t; re-check Step 5 and logs.
@@ -116,7 +116,7 @@ Expected: `{"ok":true,"service":"calculate-signals"}` or similar. If you get 502
 So that Step 3 can use `-r requirements-api-signals.txt` on the server, copy the file from your repo to the cloud:
 
 ```bash
-scp "/Volumes/Loveleet /Work/Binance/LAB_LIVE_NEW/lab_live/lab-trading-dashboard/python/requirements-api-signals.txt" root@150.241.244.130:/root/lab-trading-dashboard/python/
+scp "/Volumes/Loveleet /Work/Binance/LAB_LIVE_NEW/lab_live/lab-trading-dashboard/python/requirements-api-signals.txt" root@167.104.222.209:/root/lab-trading-dashboard/python/
 ```
 
 (Adjust the local path if your project lives elsewhere.)

@@ -75,7 +75,7 @@ psql -U lab -d olab -c "SELECT user_id, theme_profile_id, key, updated_at FROM u
 
 - **server.js** is not in Git. After pulling backend changes, copy and restart:
   ```bash
-  scp server/server.js root@150.241.244.130:/root/lab-trading-dashboard/server/
-  ssh root@150.241.244.130 "sudo systemctl restart lab-trading-dashboard"
+  scp server/server.js root@167.104.222.209:/root/lab-trading-dashboard/server/
+  ssh root@167.104.222.209 "sudo systemctl restart lab-trading-dashboard"
   ```
 - Frontend: push and deploy as usual (e.g. GitHub Pages). No DB migration is required; the server creates `theme_profiles` and adds `theme_profile_id` to `ui_settings` on first use.

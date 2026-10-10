@@ -15,7 +15,7 @@ The **server.example.js** in the repo now combines:
 
 3. **Security and DB** (no credentials in repo):
    - No hardcoded DB password; use `DB_PASSWORD` or `DATABASE_URL` in env only.
-   - When `DATABASE_URL` host is `150.241.244.130`, it is rewritten to `127.0.0.1` so the app connects to local Postgres.
+   - When `DATABASE_URL` host is `167.104.222.209`, it is rewritten to `127.0.0.1` so the app connects to local Postgres.
 
 4. **Cookie for cross-origin (GitHub Pages)**:
    - In production, session cookie uses `sameSite: "none"` and `secure: true` so the browser sends it to `api.clubinfotech.com` from `loveleet.github.io`.

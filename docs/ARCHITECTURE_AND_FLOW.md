@@ -5,12 +5,12 @@
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │  YOUR BROWSER                                                                 │
-│  You open:  http://150.241.244.130:10000                                     │
+│  You open:  http://167.104.222.209:10000                                     │
 └───────────────────────────────────┬─────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  CLOUD SERVER (Ubuntu) — 150.241.244.130                                     │
+│  CLOUD SERVER (Ubuntu) — 167.104.222.209                                     │
 │  Port 10000 — ONE Node.js process (Express)                                   │
 │                                                                               │
 │  1) Serves FRONTEND (React/Vite build)                                         │
@@ -40,7 +40,7 @@
                                         └───────────────────────┘
 ```
 
-So: **one URL, one server**. Frontend and backend both live on **150.241.244.130:10000**. The browser loads the React app from there and the same origin calls `/api/*` on the same host.
+So: **one URL, one server**. Frontend and backend both live on **167.104.222.209:10000**. The browser loads the React app from there and the same origin calls `/api/*` on the same host.
 
 ---
 
@@ -50,7 +50,7 @@ So: **one URL, one server**. Frontend and backend both live on **150.241.244.130
 |------|--------|
 | **Frontend (React/Vite)** | Built to `dist/` on your laptop → uploaded to cloud at `/opt/apps/lab-trading-dashboard/dist/`. The Node server serves these static files (and `index.html` for SPA). |
 | **Backend (Node/Express)** | Runs on the **same** cloud machine: `server/server.js` (created from `server.example.js`). Port **10000**. |
-| **Single entry URL** | **http://150.241.244.130:10000** — this serves both the dashboard UI and all APIs. |
+| **Single entry URL** | **http://167.104.222.209:10000** — this serves both the dashboard UI and all APIs. |
 
 There is no separate “frontend host” in production: the cloud **is** both frontend and backend.
 
@@ -62,7 +62,7 @@ There is no separate “frontend host” in production: the cloud **is** both fr
 
 | Secret / config | Where it lives | In Git? |
 |-----------------|----------------|--------|
-| **Cloud server (150.241.244.130)** | | |
+| **Cloud server (167.104.222.209)** | | |
 | DB connection (DB_HOST, DB_USER, DB_PASSWORD, DB_PORT, DB_NAME) | **On cloud only:** `/etc/lab-trading-dashboard.secrets.env` (or `/etc/lab-trading-dashboard.env`) | No |
 | FALLBACK_API_URL (Render URL for fallback data) | Same file on cloud | No |
 | **Laptop (your machine)** | | |
@@ -100,8 +100,8 @@ So **all passwords and config for the running app** come from **`/etc/lab-tradin
 
 ## Data flow (why the dashboard “works now”)
 
-1. You open **http://150.241.244.130:10000** → browser gets the React app from the cloud (same origin).
-2. React calls **http://150.241.244.130:10000/api/trades**, **/api/machines**, etc. (same origin; `src/config.js` uses empty base URL in production on that host).
+1. You open **http://167.104.222.209:10000** → browser gets the React app from the cloud (same origin).
+2. React calls **http://167.104.222.209:10000/api/trades**, **/api/machines**, etc. (same origin; `src/config.js` uses empty base URL in production on that host).
 3. Cloud backend:
    - Tries to connect to Postgres (e.g. 150.241.245.36). If that fails (e.g. port closed), `pool` stays `null`.
    - When `pool` is `null` and **FALLBACK_API_URL** is set (e.g. `https://lab-anish.onrender.com`), the server **proxies** those API calls to Render: it fetches `/api/trades`, `/api/machines`, etc. from Render and returns the same JSON.
@@ -115,7 +115,7 @@ No passwords are sent to the browser; the browser only talks to your cloud. The 
 
 | Question | Answer |
 |----------|--------|
-| Where is the frontend? | On the cloud at 150.241.244.130:10000, served as static files from `dist/`. |
+| Where is the frontend? | On the cloud at 167.104.222.209:10000, served as static files from `dist/`. |
 | Where is the backend? | Same machine, same port 10000; one Express app serves both static and `/api/*`. |
 | Where are passwords saved? | **Cloud:** `/etc/lab-trading-dashboard.env`. **Laptop:** `.env` (deploy/SSH only). Neither is in Git. |
 | How does data get to the dashboard when DB is unreachable? | Backend uses **FALLBACK_API_URL** and proxies `/api/trades`, `/api/machines`, etc. from Render (which can reach the DB). |
