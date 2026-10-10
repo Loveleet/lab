@@ -1,6 +1,9 @@
 /** Cloud API (direct IP). Used when not on localhost and not GitHub Pages. */
 const CLOUD_API = "http://167.104.222.209:10000";
+/** HTTPS API for GitHub Pages / clubinfotech.com (mixed-content blocks raw http:// IP). */
+const CLOUD_API_HTTPS = "https://api.clubinfotech.com";
 const CLOUD_HOSTS = ["167.104.222.209"];
+const PAGES_HOSTS = ["clubinfotech.com", "www.clubinfotech.com"];
 
 /** Local API (Node server). Vite dev server proxies /api to this. */
 const LOCAL_API_PORT = 10000;
@@ -21,6 +24,24 @@ function isLocalhostOrigin() {
   return h === "localhost" || h === "127.0.0.1";
 }
 
+/** GitHub Pages (github.io or custom domain). Must use the HTTPS API host, not relative /api. */
+function isGitHubPagesOrigin() {
+  if (typeof window === "undefined") return false;
+  const h = (window.location?.hostname || "").toLowerCase();
+  return h.includes("github.io") || PAGES_HOSTS.includes(h);
+}
+
+/** HTTPS pages cannot call http://IP — browsers block mixed content. */
+function httpsSafeApiUrl(url) {
+  if (!url || typeof url !== "string") return url;
+  const u = url.trim().replace(/\/+$/, "");
+  if (!u) return u;
+  if (typeof window !== "undefined" && window.location?.protocol === "https:" && u.startsWith("http://")) {
+    return CLOUD_API_HTTPS;
+  }
+  return u;
+}
+
 /**
  * Build-time default (env or cloud IP). On HTTPS we never use raw IP (no valid cert → ERR_SSL_PROTOCOL_ERROR).
  * Localhost: use relative URLs so Vite proxy forwards /api to localhost:10000 (or use env override).
@@ -30,11 +51,7 @@ function isLocalhostOrigin() {
 function getBuildTimeDefault() {
   let base = import.meta.env.VITE_API_BASE_URL;
   if (base !== undefined && base !== "") {
-    if (typeof window !== "undefined" && window.location?.protocol === "https:" && base.startsWith("http://")) {
-      if (CLOUD_HOSTS.some((h) => base.startsWith("http://" + h))) return ""; // raw IP over HTTPS causes ERR_SSL_PROTOCOL_ERROR
-      base = "https://" + base.slice(7);
-    }
-    return base;
+    return httpsSafeApiUrl(base);
   }
   // LOCALHOST: use empty base so fetch("/api/...") goes to same origin → Vite proxy → localhost:10000
   // Unless user chose "Use cloud data" after local server was down
@@ -47,8 +64,8 @@ function getBuildTimeDefault() {
     const o = window.location.origin;
     if (CLOUD_HOSTS.some((h) => o.startsWith("http://" + h)) || o.startsWith("https://localhost")) return "";
   }
-  // Production on HTTPS (e.g. GitHub Pages): use API_BASE_URL secret or api-config.json (fixed cloud URL)
-  if (typeof window !== "undefined" && window.location?.protocol === "https:") return "";
+  // Production on HTTPS (GitHub Pages / clubinfotech.com): HTTPS API host immediately
+  if (typeof window !== "undefined" && window.location?.protocol === "https:") return CLOUD_API_HTTPS;
   // Dev build but not in browser on localhost, or production on HTTP: use cloud
   return CLOUD_API;
 }
@@ -74,8 +91,8 @@ function getApiBaseUrl() {
   if (isCloudServerOrigin()) return "";
   
   // Prefer runtime api-config.json (fixed cloud URL) if loaded
-  if (runtimeApiBaseUrl) return ensureProtocol(runtimeApiBaseUrl);
-  return ensureProtocol(getBuildTimeDefault());
+  if (runtimeApiBaseUrl) return httpsSafeApiUrl(ensureProtocol(runtimeApiBaseUrl));
+  return httpsSafeApiUrl(ensureProtocol(getBuildTimeDefault()));
 }
 
 /** Load API URL from api-config.json once (fixed cloud IP or domain). No tunnel; no periodic refetch. */
@@ -87,13 +104,13 @@ function loadRuntimeApiConfig() {
   const path = (basePath ? basePath + "/" : "") + "api-config.json";
   const url = new URL(path, window.location.origin).href;
   const fetchUrl = url + (url.includes("?") ? "&" : "?") + "t=" + Date.now();
-  if (window.location?.hostname?.includes("github.io") && !fetchLoggedOnce) {
+  if (isGitHubPagesOrigin() && !fetchLoggedOnce) {
     fetchLoggedOnce = true;
     console.log("[LAB] Fetching api-config.json:", url);
   }
   return fetch(fetchUrl)
     .then((res) => {
-      if (window.location?.hostname?.includes("github.io") && !res.ok) {
+      if (isGitHubPagesOrigin() && !res.ok) {
         console.error(`[LAB] api-config.json not found (${res.status}). Set API_BASE_URL secret and run Deploy frontend to GitHub Pages.`);
         if (res.status === 404 && basePath) {
           const rootUrl = new URL("api-config.json", window.location.origin).href;
@@ -105,23 +122,23 @@ function loadRuntimeApiConfig() {
     .then((j) => {
       if (!j) return;
       const raw = typeof j.apiBaseUrl === "string" ? j.apiBaseUrl : (typeof j.tunnelUrl === "string" ? j.tunnelUrl : "");
-      const apiUrl = raw.replace(/\/$/, "").trim();
+      const apiUrl = httpsSafeApiUrl(raw.replace(/\/$/, "").trim());
       if (apiUrl) {
         const oldUrl = runtimeApiBaseUrl;
         runtimeApiBaseUrl = apiUrl;
-        if (window.location?.hostname?.includes("github.io")) {
+        if (isGitHubPagesOrigin()) {
           console.log("[LAB] API base from api-config.json:", apiUrl);
         }
         if (oldUrl !== apiUrl || !oldUrl) {
           window.dispatchEvent(new CustomEvent("api-config-loaded"));
         }
-      } else if (window.location?.hostname?.includes("github.io") && !loggedEmptyOnce) {
+      } else if (isGitHubPagesOrigin() && !loggedEmptyOnce) {
         loggedEmptyOnce = true;
-        console.warn("[LAB] api-config.json has empty apiBaseUrl. Set API_BASE_URL to your cloud URL (e.g. http://167.104.222.209:10000) and run Deploy frontend to GitHub Pages.");
+        console.warn("[LAB] api-config.json has empty apiBaseUrl. Set API_BASE_URL to https://api.clubinfotech.com and run Deploy frontend to GitHub Pages.");
       }
     })
     .catch((err) => {
-      if (window.location?.hostname?.includes("github.io")) {
+      if (isGitHubPagesOrigin()) {
         console.error("[LAB] api-config.json fetch failed:", err.message);
       }
     });
@@ -134,10 +151,10 @@ if (typeof window !== "undefined") {
 /** Initial value; use getApiBaseUrl() for current value (updates after api-config.json loads once). */
 export const API_BASE_URL = typeof window !== "undefined" ? getApiBaseUrl() : "";
 
-if (typeof window !== "undefined" && window.location?.hostname?.includes("github.io")) {
+if (typeof window !== "undefined" && isGitHubPagesOrigin()) {
   console.log("[LAB] Page URL:", window.location.href);
   if (!API_BASE_URL && !runtimeApiBaseUrl) {
-    console.log("[LAB] Set API_BASE_URL secret to your cloud URL (e.g. http://167.104.222.209:10000) and run Deploy frontend to GitHub Pages.");
+    console.log("[LAB] Set API_BASE_URL secret to https://api.clubinfotech.com and run Deploy frontend to GitHub Pages.");
   }
 }
 
@@ -148,29 +165,23 @@ export function getLocalhostUseCloudFallback() {
   return localhostUseCloudFallback;
 }
 
-export { getApiBaseUrl, loadRuntimeApiConfig, isLocalhostOrigin };
+export { getApiBaseUrl, loadRuntimeApiConfig, isLocalhostOrigin, isGitHubPagesOrigin };
 
 /** Check if runtime api-config.json has loaded (for debugging) */
 export function hasRuntimeApiConfig() {
   return !!runtimeApiBaseUrl;
 }
 
-/** Whether we are on GitHub Pages (for messaging) */
-export function isGitHubPagesOrigin() {
-  return typeof window !== "undefined" && window.location?.hostname?.includes("github.io");
-}
-
 export function api(path) {
   const base = getApiBaseUrl();
-  const isGitHubPages = typeof window !== "undefined" && window.location?.hostname?.includes("github.io");
   if (!base) {
-    if (isGitHubPages) {
+    if (isGitHubPagesOrigin()) {
       console.warn("[api()] No API base URL — set API_BASE_URL and redeploy, or wait for api-config.json");
     }
     return path; // Relative path (same origin)
   }
   const fullUrl = `${base.replace(/\/$/, "")}${path.startsWith("/") ? path : `/${path}`}`;
-  if (isGitHubPages) {
+  if (isGitHubPagesOrigin()) {
     console.log(`[api()] Built URL: ${fullUrl} (base: ${base}, path: ${path})`);
   }
   return fullUrl;

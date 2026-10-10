@@ -28,7 +28,7 @@ import EmaTrendGrid, { EmaUpdatedAgo } from "./components/EmaTrendGrid";
 import TradeComparePage from "./components/TradeComparePage";
 import ClientsPage from "./components/ClientsPage";
 import SoundSettings from "./components/SoundSettings";
-import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, getLocalhostUseCloudFallback } from "./config";
+import { API_BASE_URL, getApiBaseUrl, api, apiFetch, loadRuntimeApiConfig, isLocalhostOrigin, isGitHubPagesOrigin, getLocalhostUseCloudFallback } from "./config";
 import { fetchTradesSmart, flushClosedCache, getClosedCacheStats, mergeRunningAndClosed, isClosedTrade, isRunningTrade } from "./tradesCache";
 import {
   isHedgeClosedTrade,
@@ -676,7 +676,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
 
   const refreshAllData = useCallback(async () => {
     // On GitHub Pages with no API configured, skip requests until api-config.json or build URL is set
-    if (typeof window !== "undefined" && window.location?.hostname?.includes("github.io") && !getApiBaseUrl()) {
+    if (isGitHubPagesOrigin() && !getApiBaseUrl()) {
       setTradeData([]);
       setMachines([]);
       setLogData([]);
@@ -866,7 +866,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       if (isLocalhostOrigin()) {
         setApiUnreachable(true);
         if (!getLocalhostUseCloudFallback()) setLocalServerDown(true);
-      } else if (typeof window !== "undefined" && window.location?.hostname?.includes("github.io")) {
+      } else if (isGitHubPagesOrigin()) {
         const currentApiBase = getApiBaseUrl();
         console.log("[DEBUG] GitHub Pages error - current API base:", currentApiBase);
         setApiUnreachable(true);
@@ -2108,7 +2108,7 @@ useEffect(() => {
 
   useEffect(() => {
     const fetchTrades = async () => {
-      if (typeof window !== "undefined" && window.location?.hostname?.includes("github.io") && !getApiBaseUrl()) return;
+      if (isGitHubPagesOrigin() && !getApiBaseUrl()) return;
       const res = await apiFetch("/api/trades");
       const data = await res.json();
       
@@ -2874,7 +2874,7 @@ useEffect(() => {
                       <p className="text-xs">Hard-refresh (Ctrl+Shift+R) after fixing the URL or restarting the server.</p>
                     </div>
                   )}
-                  {typeof window !== "undefined" && window.location?.hostname?.includes("github.io") && !apiBaseForBanner && !apiUnreachable && (
+                  {isGitHubPagesOrigin() && !apiBaseForBanner && !apiUnreachable && (
                     <div className="mb-4 p-4 rounded-lg bg-blue-100 dark:bg-blue-900/40 border border-blue-400 dark:border-blue-600 text-blue-900 dark:text-blue-100 text-sm">
                       <strong className="block mb-2">API not configured for GitHub Pages</strong>
                       <p className="mb-2">To load data here, set your backend URL (cloud IP or domain) and redeploy:</p>
@@ -2895,7 +2895,7 @@ useEffect(() => {
                       </ol>
                     </div>
                   )}
-                  {Array.isArray(tradeData) && tradeData.length === 0 && !demoDataHint && !(typeof window !== "undefined" && window.location?.hostname?.includes("github.io") && !apiBaseForBanner) && (
+                  {Array.isArray(tradeData) && tradeData.length === 0 && !demoDataHint && !(isGitHubPagesOrigin() && !apiBaseForBanner) && (
                     <div className="mb-4 p-3 rounded-lg bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-200 text-sm">
                       <strong>No trade records in database.</strong> Table <code className="bg-amber-200/50 dark:bg-amber-800/50 px-1 rounded">alltraderecords</code> is empty. Machines and pairstatus are loading from the same DB. To see trades, add data or copy the database (see docs or <code className="bg-amber-200/50 dark:bg-amber-800/50 px-1 rounded">/api/debug</code> for counts).
                       <div className="mt-2 flex flex-wrap items-center gap-2">
