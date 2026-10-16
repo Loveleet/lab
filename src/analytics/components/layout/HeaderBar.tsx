@@ -1,6 +1,8 @@
 import React from 'react';
 import ActionFilterToggle from '../filters/ActionFilterToggle';
+import ExchangeFilterToggle from '../filters/ExchangeFilterToggle';
 import { useAppContext } from '../../context/AppContext';
+import { ExchangeFilterMode } from '../../utils/deltaFutures';
 
 type SourceMode = 'live' | 'files';
 
@@ -15,6 +17,10 @@ type Props = {
   liveLoading?: boolean;
   cloudStatus?: string;
   nightMode: boolean;
+  exchangeMode: ExchangeFilterMode;
+  onExchangeMode: (mode: ExchangeFilterMode) => void;
+  deltaPairCount: number;
+  deltaPairsLoading?: boolean;
 };
 
 const HeaderBar: React.FC<Props> = ({
@@ -27,7 +33,11 @@ const HeaderBar: React.FC<Props> = ({
   liveStatus,
   liveLoading,
   cloudStatus,
-  nightMode
+  nightMode,
+  exchangeMode,
+  onExchangeMode,
+  deltaPairCount,
+  deltaPairsLoading
 }) => {
   const { state } = useAppContext();
   const hasTrades = state.trades.some((t) => !t.invalid);
@@ -58,9 +68,19 @@ const HeaderBar: React.FC<Props> = ({
           </div>
         </div>
 
-        <div className="justify-self-center">
+        <div className="justify-self-center flex flex-wrap items-center justify-center gap-3">
           {hasTrades ? (
-            <ActionFilterToggle nightMode={nightMode} compact />
+            <>
+              <ActionFilterToggle nightMode={nightMode} compact />
+              <ExchangeFilterToggle
+                nightMode={nightMode}
+                compact
+                mode={exchangeMode}
+                onChange={onExchangeMode}
+                pairCount={deltaPairCount}
+                loading={deltaPairsLoading}
+              />
+            </>
           ) : (
             <span className={`text-xs ${nightMode ? 'text-slate-600' : 'text-slate-300'}`} aria-hidden />
           )}

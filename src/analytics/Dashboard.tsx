@@ -29,6 +29,7 @@ import {
 } from './utils/liveMap';
 import { defaultFileFilterFields, guessMappingFromHeaders } from './utils/mappingGuess';
 import { loadGroupingBasisFromStorage, saveGroupingBasisToStorage } from './utils/parsing';
+import { ExchangeFilterMode, isDeltaListed, useDeltaFutures } from './utils/deltaFutures';
 
 const Dashboard: React.FC = () => {
   const { state, setTrades, setMapping, setFilterFields, setHeaders, setWarnings } = useAppContext();
@@ -62,6 +63,15 @@ const Dashboard: React.FC = () => {
   }>({ year: [], month: [], day: [], time: [], minutes: [], symbol: [] });
 
   const validTrades = useMemo(() => state.trades.filter((t) => !t.invalid), [state.trades]);
+  const { bases: deltaBases, count: deltaPairCount, loading: deltaPairsLoading } = useDeltaFutures();
+  const [exchangeMode, setExchangeMode] = useState<ExchangeFilterMode>('both');
+  const scopedTrades = useMemo(() => {
+    if (exchangeMode === 'both') return validTrades;
+    return validTrades.filter((trade) => {
+      const listed = isDeltaListed(trade.symbol, deltaBases);
+      return exchangeMode === 'delta' ? listed : !listed;
+    });
+  }, [validTrades, exchangeMode, deltaBases]);
 
   const plainFilters = useMemo(() => {
     const obj: Record<string, string[]> = {};
@@ -73,7 +83,7 @@ const Dashboard: React.FC = () => {
 
   const workerTrades: WorkerTrade[] = useMemo(() => {
     const filterFields = state.filterFields.map((f) => f.fieldName);
-    return validTrades.map((t) => {
+    return scopedTrades.map((t) => {
       const rawSubset: Record<string, string> = {};
       filterFields.forEach((f) => {
         const val = t.raw[f];
@@ -98,11 +108,11 @@ const Dashboard: React.FC = () => {
         raw: rawSubset
       };
     });
-  }, [validTrades, state.filterFields]);
+  }, [scopedTrades, state.filterFields]);
 
   // Fallback stats on main thread if worker fails or returns empty
   const fallbackStats = useMemo(() => {
-    const filtered = applyFilters(validTrades, state.activeFilters, {});
+    const filtered = applyFilters(scopedTrades, state.activeFilters, {});
     const month =
       state.timeSelection.selectedYear !== undefined
         ? groupByMonth(filtered, state.timeSelection.selectedYear, groupingBasis)
@@ -138,14 +148,14 @@ const Dashboard: React.FC = () => {
             groupingBasis
           )
         : [];
-    const symbol = groupBySymbol(applyFilters(validTrades, state.activeFilters, state.timeSelection, groupingBasis));
+    const symbol = groupBySymbol(applyFilters(scopedTrades, state.activeFilters, state.timeSelection, groupingBasis));
     const year = groupByYear(filtered, groupingBasis);
     return { year, month, day, time, minutes, symbol };
-  }, [validTrades, state.activeFilters, state.timeSelection, groupingBasis]);
+  }, [scopedTrades, state.activeFilters, state.timeSelection, groupingBasis]);
 
   const currentTrades = useMemo(
-    () => applyFilters(validTrades, state.activeFilters, state.timeSelection, groupingBasis),
-    [validTrades, state.activeFilters, state.timeSelection, groupingBasis]
+    () => applyFilters(scopedTrades, state.activeFilters, state.timeSelection, groupingBasis),
+    [scopedTrades, state.activeFilters, state.timeSelection, groupingBasis]
   );
 
   const avgTradesPerDay = useMemo(() => {
@@ -278,6 +288,10 @@ const Dashboard: React.FC = () => {
         liveLoading={liveLoading}
         cloudStatus={cloudStatus}
         nightMode={nightMode}
+        exchangeMode={exchangeMode}
+        onExchangeMode={setExchangeMode}
+        deltaPairCount={deltaPairCount}
+        deltaPairsLoading={deltaPairsLoading}
       />
 
       <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 pb-16">
