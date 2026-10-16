@@ -81,6 +81,14 @@ function toUtcParts(date: Date | undefined) {
   };
 }
 
+/** A row is shown only when it has a symbol, an open time, and a close time. */
+export function isShownTradeRow(row: Record<string, any>, mapping: FundamentalMapping): boolean {
+  const start = parseDate(row[mapping.startTimeCol]);
+  const end = parseDate(row[mapping.endTimeCol]);
+  const symbol = row[mapping.symbolCol] == null ? '' : String(row[mapping.symbolCol]).trim();
+  return Boolean(start && end && symbol);
+}
+
 function normalizeTradeRow(
   row: Record<string, any>,
   mapping: FundamentalMapping,

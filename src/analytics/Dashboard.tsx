@@ -507,7 +507,7 @@ const Dashboard: React.FC = () => {
         }}
         onCloudSave={(state, message) => {
           if (state === 'saving') setCloudStatus('saving to cloud…');
-          else if (state === 'saved') setCloudStatus('saved on cloud');
+          else if (state === 'saved') setCloudStatus(message || 'saved on cloud');
           else setCloudStatus(message || 'opened locally — cloud save failed');
         }}
       />

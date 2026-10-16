@@ -51,6 +51,27 @@ function pickHeader(headers: string[], candidates: string[]): string | undefined
   return undefined;
 }
 
+const EXTRA_DISPLAY_COLUMNS = ['signal_time', 'invest', 'max profit', 'max loss', 'unrealized_profit'];
+
+/** Columns the analytics page reads. Everything else in the sheet is unused. */
+export function columnsUsedForDisplay(headers: string[], mapping?: FundamentalMapping): string[] {
+  const wanted = new Set(
+    [
+      ...START_CANDIDATES,
+      ...END_CANDIDATES,
+      ...PNL_CANDIDATES,
+      ...SYMBOL_CANDIDATES,
+      ...ACTION_CANDIDATES,
+      ...FILTER_CANDIDATES,
+      ...EXTRA_DISPLAY_COLUMNS
+    ].map((name) => name.toLowerCase())
+  );
+  if (mapping) {
+    Object.values(mapping).forEach((col) => wanted.add(String(col).trim().toLowerCase()));
+  }
+  return headers.filter((header) => wanted.has(String(header).trim().toLowerCase()));
+}
+
 export function guessMappingFromHeaders(headers: string[]): FundamentalMapping | undefined {
   const startTimeCol = pickHeader(headers, START_CANDIDATES);
   const endTimeCol = pickHeader(headers, END_CANDIDATES);

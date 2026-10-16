@@ -8,6 +8,7 @@ import {
   renameAnalyticsFile,
   uploadAnalyticsFile
 } from '../../utils/fileApi';
+import { compactForAnalytics, toExcelFile } from '../../utils/compactSheet';
 import { parseExcelBuffer } from '../../utils/parseExcel';
 
 type Props = {
@@ -61,23 +62,35 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
     setLoading(true);
     setError(null);
     try {
-      const buffer = await file.arrayBuffer();
-      await parseAndClose(buffer, file.name);
+      const parsed = await parseExcelBuffer(await file.arrayBuffer());
+      const compact = compactForAnalytics(parsed.headers, parsed.rows);
+      const headers = compact?.headers ?? parsed.headers;
+      const rows = compact?.rows ?? parsed.rows;
+      if (!rows.length) {
+        setError('No rows with a symbol, open time, and close time to show.');
+        setLoading(false);
+        if (inputRef.current) inputRef.current.value = '';
+        return;
+      }
+      onParsed({ headers, rows, fileName: file.name });
+      onClose();
+      const savedFile = compact ? toExcelFile(file.name, headers, rows) : file;
+      const note = compact
+        ? `Saved ${rows.length.toLocaleString()} of ${compact.totalRows.toLocaleString()} rows`
+        : undefined;
+      onCloudSave?.('saving');
+      uploadAnalyticsFile(savedFile)
+        .then(() => onCloudSave?.('saved', note))
+        .catch((err: any) => {
+          console.warn('[analytics] cloud save failed', err);
+          onCloudSave?.('error', err?.message || 'Could not save to cloud');
+        });
     } catch (err: any) {
       setError(err?.message || 'Could not read file');
+    } finally {
       setLoading(false);
       if (inputRef.current) inputRef.current.value = '';
-      return;
     }
-    setLoading(false);
-    if (inputRef.current) inputRef.current.value = '';
-    onCloudSave?.('saving');
-    uploadAnalyticsFile(file)
-      .then(() => onCloudSave?.('saved'))
-      .catch((err: any) => {
-        console.warn('[analytics] cloud save failed', err);
-        onCloudSave?.('error', err?.message || 'Could not save to cloud');
-      });
   };
 
   const handleOpen = async (item: AnalyticsCloudFile) => {
@@ -138,7 +151,7 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
           <div>
             <div className="text-xl font-semibold">Open file</div>
             <p className={`text-xs ${muted}`}>
-              Open Excel from this PC immediately; it is saved to the cloud in the background. Or pick a file already stored here.
+              Open Excel from this PC. Only rows with a symbol, open time, and close time are kept, then that sheet is saved to the cloud.
             </p>
           </div>
           <button
