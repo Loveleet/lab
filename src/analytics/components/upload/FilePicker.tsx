@@ -19,6 +19,7 @@ type Props = {
     headers: string[];
     rows: Record<string, any>[];
     fileName: string;
+    fileId?: string;
   }) => void;
   onCloudSave?: (state: 'saving' | 'saved' | 'error', message?: string) => void;
 };
@@ -52,9 +53,9 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
     refresh();
   }, [open]);
 
-  const parseAndClose = async (buffer: ArrayBuffer, fileName: string) => {
+  const parseAndClose = async (buffer: ArrayBuffer, fileName: string, fileId?: string) => {
     const parsed = await parseExcelBuffer(buffer);
-    onParsed({ headers: parsed.headers, rows: parsed.rows, fileName });
+    onParsed({ headers: parsed.headers, rows: parsed.rows, fileName, fileId });
     onClose();
   };
 
@@ -74,10 +75,9 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
       }
       onParsed({ headers, rows, fileName: file.name });
       onClose();
-      const savedFile = compact ? toExcelFile(file.name, headers, rows) : file;
-      const note = compact
-        ? `Saved ${rows.length.toLocaleString()} of ${compact.totalRows.toLocaleString()} rows`
-        : undefined;
+      if (!compact) return;
+      const savedFile = toExcelFile(file.name, headers, rows);
+      const note = `Saved ${rows.length.toLocaleString()} of ${compact.totalRows.toLocaleString()} rows`;
       onCloudSave?.('saving');
       uploadAnalyticsFile(savedFile)
         .then(() => onCloudSave?.('saved', note))
@@ -99,12 +99,12 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
     try {
       const parsed = await fetchParsedAnalyticsFile(item.id);
       if (parsed?.headers?.length) {
-        onParsed({ headers: parsed.headers, rows: parsed.rows, fileName: item.filename });
+        onParsed({ headers: parsed.headers, rows: parsed.rows, fileName: item.filename, fileId: item.id });
         onClose();
         return;
       }
       const buffer = await downloadAnalyticsFile(item.id);
-      await parseAndClose(buffer, item.filename);
+      await parseAndClose(buffer, item.filename, item.id);
     } catch (err: any) {
       setError(err?.message || 'Could not open file');
     } finally {
@@ -151,7 +151,7 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
           <div>
             <div className="text-xl font-semibold">Open file</div>
             <p className={`text-xs ${muted}`}>
-              Open Excel from this PC. Only rows with a symbol, open time, and close time are kept, then that sheet is saved to the cloud.
+              Map a new Excel once. Only those columns are saved, and the file opens next time without asking.
             </p>
           </div>
           <button

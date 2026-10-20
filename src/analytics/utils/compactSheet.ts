@@ -1,6 +1,16 @@
 import * as XLSX from 'xlsx';
+import { FundamentalMapping } from '../types/trade';
 import { columnsUsedForDisplay, guessMappingFromHeaders } from './mappingGuess';
 import { isShownTradeRow } from './parsing';
+
+/** Names the page already recognizes, so a saved file opens without asking again. */
+export const CANONICAL_MAPPING: FundamentalMapping = {
+  startTimeCol: 'execute_time',
+  endTimeCol: 'close_time',
+  pnlCol: 'Profit Loss',
+  symbolCol: 'symbol',
+  actionCol: 'action'
+};
 
 export type CompactedSheet = {
   headers: string[];
@@ -29,6 +39,31 @@ export function compactForAnalytics(headers: string[], rows: Record<string, any>
       return next;
     });
   return { headers: useHeaders, rows: keptRows, totalRows: rows.length };
+}
+
+/** Keep the mapped columns and chosen filters, under stable names. */
+export function compactWithMapping(
+  rows: Record<string, any>[],
+  mapping: FundamentalMapping,
+  filterFields: string[]
+): CompactedSheet & { mapping: FundamentalMapping } {
+  const roleSources = new Set(Object.values(mapping));
+  const extras = Array.from(new Set(filterFields.filter((field) => field && !roleSources.has(field))));
+  const headers = [...Object.values(CANONICAL_MAPPING), ...extras];
+  const keptRows = rows.filter((row) => isShownTradeRow(row, mapping)).map((row) => {
+    const next: Record<string, any> = {
+      [CANONICAL_MAPPING.startTimeCol]: cellForExcel(row[mapping.startTimeCol]),
+      [CANONICAL_MAPPING.endTimeCol]: cellForExcel(row[mapping.endTimeCol]),
+      [CANONICAL_MAPPING.pnlCol]: cellForExcel(row[mapping.pnlCol]),
+      [CANONICAL_MAPPING.symbolCol]: cellForExcel(row[mapping.symbolCol]),
+      [CANONICAL_MAPPING.actionCol]: cellForExcel(row[mapping.actionCol])
+    };
+    extras.forEach((field) => {
+      next[field] = cellForExcel(row[field]);
+    });
+    return next;
+  });
+  return { headers, rows: keptRows, totalRows: rows.length, mapping: { ...CANONICAL_MAPPING } };
 }
 
 export function toExcelFile(fileName: string, headers: string[], rows: Record<string, any>[]): File {

@@ -3,6 +3,7 @@ import { useAppContext } from '../../context/AppContext';
 import { FilterFieldConfig, FundamentalMapping } from '../../types/trade';
 import {
   loadFilterFieldsFromStorage,
+  loadMappingFromStorage,
   saveFilterFieldsToStorage,
   saveMappingToStorage
 } from '../../utils/parsing';
@@ -14,6 +15,7 @@ type Props = {
   headers: string[];
   rawRows: Record<string, any>[];
   nightMode: boolean;
+  onApply?: (mapping: FundamentalMapping, filterFields: string[]) => void;
 };
 
 const requiredFields: { key: keyof FundamentalMapping; label: string }[] = [
@@ -24,7 +26,7 @@ const requiredFields: { key: keyof FundamentalMapping; label: string }[] = [
   { key: 'actionCol', label: 'Side' }
 ];
 
-const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nightMode }) => {
+const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nightMode, onApply }) => {
   const { state, setMapping, setTrades, setFilterFields, setWarnings } = useAppContext();
   const [localMapping, setLocalMapping] = useState<FundamentalMapping | undefined>();
   const [filterSelections, setFilterSelections] = useState<Set<string>>(new Set());
@@ -38,7 +40,9 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
     const current = mappingMatchesHeaders(state.fundamentalMapping, headers)
       ? state.fundamentalMapping
       : undefined;
-    setLocalMapping(current || guessed);
+    const stored = loadMappingFromStorage();
+    const remembered = stored && mappingMatchesHeaders(stored, headers) ? stored : undefined;
+    setLocalMapping(current || remembered || guessed);
     const savedFilters = loadFilterFieldsFromStorage()?.filter((f) => headers.includes(f));
     const defaults = defaultFileFilterFields(headers).map((f) => f.fieldName);
     setFilterSelections(new Set(savedFilters?.length ? savedFilters : defaults));
@@ -97,15 +101,12 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
           setFilterFields(filterConfigs);
           setWarnings(warnings);
           worker.terminate();
+          onApply?.(localMapping, filterConfigs.map((f) => f.fieldName));
           onClose();
           setApplying(false);
         }
       };
       worker.postMessage({ type: 'normalize', rows: rawRows, mapping: localMapping });
-      const filterConfigs: FilterFieldConfig[] = Array.from(filterSelections).map((f) => ({
-        fieldName: f,
-        displayName: f
-      }));
     } catch (err) {
       console.error(err);
       setError('Failed to normalize trades.');
@@ -139,7 +140,7 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
           <div>
             <div className="text-xl font-semibold">Mapping Settings</div>
             <p className={`text-xs ${nightMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              Assign Excel columns to core roles and pick fields to expose as filters.
+              Choose the columns once. Only those are saved, and this file opens next time without asking.
             </p>
           </div>
           <button

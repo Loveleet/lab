@@ -27,8 +27,16 @@ import {
   liveHeadersFromRows,
   mapLabTradesToAnalytics
 } from './utils/liveMap';
-import { defaultFileFilterFields, guessMappingFromHeaders } from './utils/mappingGuess';
-import { loadGroupingBasisFromStorage, saveGroupingBasisToStorage } from './utils/parsing';
+import { defaultFileFilterFields, guessMappingFromHeaders, mappingMatchesHeaders } from './utils/mappingGuess';
+import { compactWithMapping, toExcelFile } from './utils/compactSheet';
+import { deleteAnalyticsFile, uploadAnalyticsFile } from './utils/fileApi';
+import {
+  loadFilterFieldsFromStorage,
+  loadGroupingBasisFromStorage,
+  loadMappingFromStorage,
+  saveGroupingBasisToStorage
+} from './utils/parsing';
+import { FundamentalMapping } from './types/trade';
 import { ExchangeFilterMode, isDeltaListed, useDeltaFutures } from './utils/deltaFutures';
 
 const Dashboard: React.FC = () => {
@@ -38,6 +46,7 @@ const Dashboard: React.FC = () => {
   const [filesOpen, setFilesOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState<'live' | 'files'>('live');
   const [fileName, setFileName] = useState('');
+  const [cloudFileId, setCloudFileId] = useState<string | null>(null);
   const [liveStatus, setLiveStatus] = useState('');
   const [liveLoading, setLiveLoading] = useState(false);
   const [cloudStatus, setCloudStatus] = useState('');
@@ -51,6 +60,56 @@ const Dashboard: React.FC = () => {
     saveGroupingBasisToStorage(groupingBasis);
   }, [groupingBasis]);
   const liveRequestRef = useRef(0);
+
+  const saveMappedFile = (
+    sourceRows: Record<string, any>[],
+    name: string,
+    previousId: string | null,
+    mapping: FundamentalMapping,
+    filterFields: string[]
+  ) => {
+    const compact = compactWithMapping(sourceRows, mapping, filterFields);
+    if (!compact.rows.length) {
+      setCloudStatus('No rows with a symbol, open time, and close time to save');
+      setMappingOpen(true);
+      return;
+    }
+    setRawRows(compact.rows);
+    setHeaders(compact.headers);
+    setMapping(compact.mapping);
+    const renamedFilters = filterFields.map((field) => {
+      if (field === mapping.startTimeCol) return compact.mapping.startTimeCol;
+      if (field === mapping.endTimeCol) return compact.mapping.endTimeCol;
+      if (field === mapping.pnlCol) return compact.mapping.pnlCol;
+      if (field === mapping.symbolCol) return compact.mapping.symbolCol;
+      if (field === mapping.actionCol) return compact.mapping.actionCol;
+      return field;
+    });
+    const filterNames = Array.from(new Set(renamedFilters.filter(Boolean)));
+    setFilterFields(filterNames.map((fieldName) => ({ fieldName, displayName: fieldName })));
+    const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (ev: MessageEvent<any>) => {
+      if (ev.data?.type === 'normalized') {
+        setTrades(ev.data.trades || []);
+        setWarnings(ev.data.warnings || []);
+        worker.terminate();
+      }
+    };
+    worker.onerror = () => worker.terminate();
+    worker.postMessage({ type: 'normalize', rows: compact.rows, mapping: compact.mapping });
+    setCloudStatus('saving smaller file…');
+    uploadAnalyticsFile(toExcelFile(name || 'analytics.xlsx', compact.headers, compact.rows))
+      .then(async (saved) => {
+        if (previousId && previousId !== saved.id) await deleteAnalyticsFile(previousId).catch(() => {});
+        setCloudFileId(saved.id);
+        setCloudStatus(
+          `Saved ${compact.rows.length.toLocaleString()} rows and ${compact.headers.length} columns`
+        );
+      })
+      .catch((err: any) => {
+        setCloudStatus(err?.message || 'Could not save the smaller file');
+      });
+  };
   const workerRef = useRef<Worker | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [stats, setStats] = useState<{
@@ -470,21 +529,32 @@ const Dashboard: React.FC = () => {
         headers={state.headers}
         rawRows={rawRows}
         nightMode={nightMode}
+        onApply={(mapping, filterFields) =>
+          saveMappedFile(rawRows, fileName, cloudFileId, mapping, filterFields)
+        }
       />
       <FilePicker
         open={filesOpen}
         onClose={() => setFilesOpen(false)}
         nightMode={nightMode}
-        onParsed={({ headers, rows, fileName: name }) => {
+        onParsed={({ headers, rows, fileName: name, fileId }) => {
           setSourceMode('files');
           setRawRows(rows);
           setHeaders(headers);
           setTrades([]);
           setWarnings([]);
           setFileName(name);
+          setCloudFileId(fileId ?? null);
           setCloudStatus('');
           const guessed = guessMappingFromHeaders(headers);
           if (!guessed) {
+            const stored = loadMappingFromStorage();
+            const remembered = stored && mappingMatchesHeaders(stored, headers) ? stored : undefined;
+            if (remembered) {
+              const filters = (loadFilterFieldsFromStorage() || []).filter((field) => headers.includes(field));
+              saveMappedFile(rows, name, fileId ?? null, remembered, filters);
+              return;
+            }
             setMapping(undefined);
             setMappingOpen(true);
             return;
