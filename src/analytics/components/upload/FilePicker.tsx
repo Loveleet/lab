@@ -10,6 +10,7 @@ import {
 } from '../../utils/fileApi';
 import { compactForAnalytics, toExcelFile } from '../../utils/compactSheet';
 import { parseExcelBuffer } from '../../utils/parseExcel';
+import FileProgress, { FILE_PIPELINE } from './FileProgress';
 
 type Props = {
   open: boolean;
@@ -22,9 +23,10 @@ type Props = {
     fileId?: string;
   }) => void;
   onCloudSave?: (state: 'saving' | 'saved' | 'error', message?: string) => void;
+  onStage?: (step: number | null) => void;
 };
 
-const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onCloudSave }) => {
+const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onCloudSave, onStage }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [files, setFiles] = useState<AnalyticsCloudFile[]>([]);
   const [loading, setLoading] = useState(false);
@@ -32,6 +34,11 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [stage, setStage] = useState<number | null>(null);
+  const reportStage = (step: number | null) => {
+    setStage(step);
+    onStage?.(step);
+  };
 
   const panel = nightMode ? 'bg-slate-900 text-slate-100 border border-slate-800' : 'bg-white text-slate-900';
   const muted = nightMode ? 'text-slate-400' : 'text-slate-500';
@@ -62,12 +69,14 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
   const handleUpload = async (file: File) => {
     setLoading(true);
     setError(null);
+    reportStage(1);
     try {
       const parsed = await parseExcelBuffer(await file.arrayBuffer());
       const compact = compactForAnalytics(parsed.headers, parsed.rows);
       const headers = compact?.headers ?? parsed.headers;
       const rows = compact?.rows ?? parsed.rows;
       if (!rows.length) {
+        reportStage(null);
         setError('No rows with a symbol, open time, and close time to show.');
         setLoading(false);
         if (inputRef.current) inputRef.current.value = '';
@@ -86,6 +95,7 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
           onCloudSave?.('error', err?.message || 'Could not save to cloud');
         });
     } catch (err: any) {
+      reportStage(null);
       setError(err?.message || 'Could not read file');
     } finally {
       setLoading(false);
@@ -96,16 +106,20 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
   const handleOpen = async (item: AnalyticsCloudFile) => {
     setLoading(true);
     setError(null);
+    reportStage(0);
     try {
       const parsed = await fetchParsedAnalyticsFile(item.id);
       if (parsed?.headers?.length) {
+        reportStage(1);
         onParsed({ headers: parsed.headers, rows: parsed.rows, fileName: item.filename, fileId: item.id });
         onClose();
         return;
       }
       const buffer = await downloadAnalyticsFile(item.id);
+      reportStage(1);
       await parseAndClose(buffer, item.filename, item.id);
     } catch (err: any) {
+      reportStage(null);
       setError(err?.message || 'Could not open file');
     } finally {
       setLoading(false);
@@ -188,8 +202,16 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
               if (file) handleUpload(file);
             }}
           />
-          {loading ? 'Working…' : 'Upload from this PC'}
+          {loading ? `${FILE_PIPELINE[stage ?? 1]}…` : 'Upload from this PC'}
         </label>
+
+        {stage !== null && (
+          <FileProgress
+            step={stage}
+            nightMode={nightMode}
+            className="mb-4 max-w-none"
+          />
+        )}
 
         {error && <div className="mb-3 text-sm text-rose-500">{error}</div>}
 

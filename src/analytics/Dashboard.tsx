@@ -38,6 +38,7 @@ import {
 } from './utils/parsing';
 import { FundamentalMapping } from './types/trade';
 import { ExchangeFilterMode, isDeltaListed, useDeltaFutures } from './utils/deltaFutures';
+import FileProgress from './components/upload/FileProgress';
 
 const Dashboard: React.FC = () => {
   const { state, setTrades, setMapping, setFilterFields, setHeaders, setWarnings } = useAppContext();
@@ -50,6 +51,8 @@ const Dashboard: React.FC = () => {
   const [liveStatus, setLiveStatus] = useState('');
   const [liveLoading, setLiveLoading] = useState(false);
   const [cloudStatus, setCloudStatus] = useState('');
+  const [fileStep, setFileStep] = useState<number | null>(null);
+  const mappingConfirmed = useRef(false);
   const [activeTab, setActiveTab] = useState<'time' | 'symbols' | 'holidays' | 'daywise'>('time');
   const [filtersHidden, setFiltersHidden] = useState(false);
   const [nightMode, setNightMode] = useState(false);
@@ -61,15 +64,23 @@ const Dashboard: React.FC = () => {
   }, [groupingBasis]);
   const liveRequestRef = useRef(0);
 
-  const saveMappedFile = (
+  const letPaint = () =>
+    new Promise<void>((resolve) => {
+      requestAnimationFrame(() => setTimeout(resolve, 40));
+    });
+
+  const saveMappedFile = async (
     sourceRows: Record<string, any>[],
     name: string,
     previousId: string | null,
     mapping: FundamentalMapping,
     filterFields: string[]
   ) => {
+    setFileStep(3);
+    await letPaint();
     const compact = compactWithMapping(sourceRows, mapping, filterFields);
     if (!compact.rows.length) {
+      setFileStep(2);
       setCloudStatus('No rows with a symbol, open time, and close time to save');
       setMappingOpen(true);
       return;
@@ -87,17 +98,24 @@ const Dashboard: React.FC = () => {
     });
     const filterNames = Array.from(new Set(renamedFilters.filter(Boolean)));
     setFilterFields(filterNames.map((fieldName) => ({ fieldName, displayName: fieldName })));
+    setFileStep(4);
+    await letPaint();
     const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
     worker.onmessage = (ev: MessageEvent<any>) => {
       if (ev.data?.type === 'normalized') {
         setTrades(ev.data.trades || []);
         setWarnings(ev.data.warnings || []);
+        setFileStep(null);
         worker.terminate();
       }
     };
-    worker.onerror = () => worker.terminate();
+    worker.onerror = () => {
+      setFileStep(null);
+      worker.terminate();
+    };
     worker.postMessage({ type: 'normalize', rows: compact.rows, mapping: compact.mapping });
-    setCloudStatus('saving smaller file…');
+    setCloudStatus('Saving the smaller file…');
+    await letPaint();
     uploadAnalyticsFile(toExcelFile(name || 'analytics.xlsx', compact.headers, compact.rows))
       .then(async (saved) => {
         if (previousId && previousId !== saved.id) await deleteAnalyticsFile(previousId).catch(() => {});
@@ -338,6 +356,7 @@ const Dashboard: React.FC = () => {
             setFileName('');
             setLiveStatus('');
             setCloudStatus('');
+            setFileStep(null);
             setFilesOpen(true);
           }
         }}
@@ -525,18 +544,24 @@ const Dashboard: React.FC = () => {
 
       <MappingSettings
         open={mappingOpen}
-        onClose={() => setMappingOpen(false)}
+        onClose={() => {
+          setMappingOpen(false);
+          if (!mappingConfirmed.current) setFileStep(null);
+          mappingConfirmed.current = false;
+        }}
         headers={state.headers}
         rawRows={rawRows}
         nightMode={nightMode}
-        onApply={(mapping, filterFields) =>
-          saveMappedFile(rawRows, fileName, cloudFileId, mapping, filterFields)
-        }
+        onApply={(mapping, filterFields) => {
+          mappingConfirmed.current = true;
+          saveMappedFile(rawRows, fileName, cloudFileId, mapping, filterFields);
+        }}
       />
       <FilePicker
         open={filesOpen}
         onClose={() => setFilesOpen(false)}
         nightMode={nightMode}
+        onStage={setFileStep}
         onParsed={({ headers, rows, fileName: name, fileId }) => {
           setSourceMode('files');
           setRawRows(rows);
@@ -556,31 +581,43 @@ const Dashboard: React.FC = () => {
               return;
             }
             setMapping(undefined);
+            setFileStep(2);
             setMappingOpen(true);
             return;
           }
           setMapping(guessed);
           setFilterFields(defaultFileFilterFields(headers));
+          setFileStep(4);
           const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
           worker.onmessage = (ev: MessageEvent<any>) => {
             if (ev.data?.type === 'normalized') {
               setTrades(ev.data.trades || []);
               setWarnings(ev.data.warnings || []);
+              setFileStep(null);
               worker.terminate();
             }
           };
           worker.onerror = () => {
+            setFileStep(2);
             setMappingOpen(true);
             worker.terminate();
           };
           worker.postMessage({ type: 'normalize', rows, mapping: guessed });
         }}
-        onCloudSave={(state, message) => {
-          if (state === 'saving') setCloudStatus('saving to cloud…');
-          else if (state === 'saved') setCloudStatus(message || 'saved on cloud');
+        onCloudSave={(status, message) => {
+          if (status === 'saving') setCloudStatus('saving to cloud…');
+          else if (status === 'saved') setCloudStatus(message || 'saved on cloud');
           else setCloudStatus(message || 'opened locally — cloud save failed');
         }}
       />
+      {fileStep !== null && !filesOpen && !mappingOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center px-4"
+          style={{ backgroundColor: 'rgba(15,23,42,0.55)' }}
+        >
+          <FileProgress step={fileStep} nightMode={nightMode} note={cloudStatus} className="mt-0" />
+        </div>
+      )}
     </div>
   );
 };

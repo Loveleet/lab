@@ -8,6 +8,7 @@ import {
   saveMappingToStorage
 } from '../../utils/parsing';
 import { defaultFileFilterFields, guessMappingFromHeaders, mappingMatchesHeaders } from '../../utils/mappingGuess';
+import FileProgress from '../upload/FileProgress';
 
 type Props = {
   open: boolean;
@@ -140,7 +141,7 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
           <div>
             <div className="text-xl font-semibold">Mapping Settings</div>
             <p className={`text-xs ${nightMode ? 'text-slate-400' : 'text-slate-500'}`}>
-              Choose the columns once. Only those are saved, and this file opens next time without asking.
+              Waiting for you. Choose the columns once. Only those are saved, and this file opens next time without asking.
             </p>
           </div>
           <button
@@ -151,6 +152,10 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
           </button>
         </div>
 
+        {applying && <FileProgress step={4} nightMode={nightMode} className="max-w-none" />}
+
+        {!applying && (
+        <>
         <div className="grid md:grid-cols-2 gap-4">
           {requiredFields.map((field) => {
             const searchTerm = (mappingSearch[field.key] || '').toLowerCase();
@@ -247,6 +252,8 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
             </>
           )}
         </div>
+        </>
+        )}
 
         {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
 
@@ -256,6 +263,7 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
               nightMode ? 'border border-slate-700 text-slate-200 hover:border-slate-600' : 'border border-slate-200'
             }`}
             onClick={onClose}
+            disabled={applying}
           >
             Cancel
           </button>
@@ -266,7 +274,7 @@ const MappingSettings: React.FC<Props> = ({ open, onClose, headers, rawRows, nig
             onClick={handleSave}
             disabled={applying}
           >
-            {applying ? 'Applying...' : 'Confirm'}
+            {applying ? 'Preparing the results…' : 'Confirm'}
           </button>
         </div>
       </div>
