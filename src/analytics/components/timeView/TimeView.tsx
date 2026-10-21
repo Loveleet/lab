@@ -11,6 +11,7 @@ type Props = {
   timeStats: GroupStats[];
   minuteStats?: GroupStats[];
   loading?: boolean;
+  statusNote?: string;
   nightMode: boolean;
   groupingBasis: TimeGroupingBasis;
   onGroupingBasisChange: (basis: TimeGroupingBasis) => void;
@@ -216,6 +217,7 @@ const TimeView: React.FC<Props> = ({
   timeStats,
   minuteStats,
   loading,
+  statusNote,
   nightMode,
   groupingBasis,
   onGroupingBasisChange
@@ -404,6 +406,7 @@ const TimeView: React.FC<Props> = ({
     subtitleBuilder?: (stat: GroupStats) => string | undefined
   ) => {
     if (!stats.length) {
+      if (loading) return null;
       return (
         <div className={`text-sm ${nightMode ? 'text-slate-400' : 'text-slate-500'}`}>
           No data for this level.
@@ -535,8 +538,27 @@ const TimeView: React.FC<Props> = ({
       </div>
       </div>
 
-      {loading && (
-        <div className={`text-sm ${nightMode ? 'text-slate-400' : 'text-slate-500'}`}>Loading view...</div>
+      {!!statusNote && (
+        <div
+          className={`flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold ${
+            statusNote === 'Loaded'
+              ? nightMode
+                ? 'border-emerald-800 bg-emerald-950/50 text-emerald-300'
+                : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : nightMode
+                ? 'border-slate-700 bg-slate-800 text-slate-100'
+                : 'border-slate-200 bg-white text-slate-800'
+          }`}
+        >
+          {statusNote === 'Loaded' ? (
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-emerald-500 text-[10px] text-white">
+              ✓
+            </span>
+          ) : (
+            <span className="inline-block h-3.5 w-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+          )}
+          {statusNote}
+        </div>
       )}
 
       {!selection.selectedYear && (
