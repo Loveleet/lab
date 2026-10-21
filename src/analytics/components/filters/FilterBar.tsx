@@ -5,6 +5,7 @@ import { Trade } from '../../types/trade';
 type Props = {
   trades: Trade[];
   nightMode: boolean;
+  onFilterChange?: () => void;
 };
 
 type ValueCount = {
@@ -12,7 +13,11 @@ type ValueCount = {
   count: number;
 };
 
-const FilterBar: React.FC<Props> = ({ trades, nightMode }) => {
+const FilterBar: React.FC<Props> = ({ trades, nightMode, onFilterChange }) => {
+  const applyFilterChange = (fn: () => void) => {
+    onFilterChange?.();
+    fn();
+  };
   const { state, toggleFilterValue, setFilterValues } = useAppContext();
   const [openField, setOpenField] = useState<string | null>(null);
 
@@ -76,9 +81,11 @@ const FilterBar: React.FC<Props> = ({ trades, nightMode }) => {
                   <button
                     className={`${nightMode ? 'text-slate-300 hover:text-slate-100' : 'text-slate-600 hover:text-slate-900'}`}
                     onClick={() =>
-                      setFilterValues(
-                        field.fieldName,
-                        valueCounts[field.fieldName]?.map((v) => v.value) || []
+                      applyFilterChange(() =>
+                        setFilterValues(
+                          field.fieldName,
+                          valueCounts[field.fieldName]?.map((v) => v.value) || []
+                        )
                       )
                     }
                   >
@@ -86,7 +93,7 @@ const FilterBar: React.FC<Props> = ({ trades, nightMode }) => {
                   </button>
                   <button
                     className={`${nightMode ? 'text-slate-300 hover:text-slate-100' : 'text-slate-600 hover:text-slate-900'}`}
-                    onClick={() => setFilterValues(field.fieldName, [])}
+                    onClick={() => applyFilterChange(() => setFilterValues(field.fieldName, []))}
                   >
                     Clear all
                   </button>
@@ -107,7 +114,9 @@ const FilterBar: React.FC<Props> = ({ trades, nightMode }) => {
                           <input
                             type="checkbox"
                             checked={checked}
-                            onChange={() => toggleFilterValue(field.fieldName, item.value)}
+                            onChange={() =>
+                              applyFilterChange(() => toggleFilterValue(field.fieldName, item.value))
+                            }
                           />
                           <span>{item.value}</span>
                         </div>

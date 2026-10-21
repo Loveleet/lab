@@ -15,6 +15,7 @@ type Props = {
   nightMode: boolean;
   groupingBasis: TimeGroupingBasis;
   onGroupingBasisChange: (basis: TimeGroupingBasis) => void;
+  onNavigateStart?: () => void;
 };
 
 const StatCard: React.FC<{
@@ -220,9 +221,14 @@ const TimeView: React.FC<Props> = ({
   statusNote,
   nightMode,
   groupingBasis,
-  onGroupingBasisChange
+  onGroupingBasisChange,
+  onNavigateStart
 }) => {
   const { state, setTimeSelection } = useAppContext();
+  const navigate = (fn: () => void) => {
+    onNavigateStart?.();
+    fn();
+  };
   const [sortState, setSortState] = useState<
     Record<string, { field: string; dir: 'asc' | 'desc' }>
   >({
@@ -247,6 +253,7 @@ const TimeView: React.FC<Props> = ({
       { field: 'tradesCount', label: 'Trades' },
       { field: 'winRate', label: 'Win rate' },
       { field: 'hierarchicalAvgConcurrentTrades', label: 'Avg open (nested)' },
+      { field: 'maxConcurrentTrades', label: 'Max open' },
       { field: 'key', label: 'Year (chronological)' }
     ],
     month: [
@@ -255,6 +262,7 @@ const TimeView: React.FC<Props> = ({
       { field: 'tradesCount', label: 'Trades' },
       { field: 'winRate', label: 'Win rate' },
       { field: 'hierarchicalAvgConcurrentTrades', label: 'Avg open (nested)' },
+      { field: 'maxConcurrentTrades', label: 'Max open' },
       { field: 'key', label: 'Month (chronological)' }
     ],
     day: [
@@ -263,6 +271,7 @@ const TimeView: React.FC<Props> = ({
       { field: 'tradesCount', label: 'Trades' },
       { field: 'winRate', label: 'Win rate' },
       { field: 'hierarchicalAvgConcurrentTrades', label: 'Avg open (nested)' },
+      { field: 'maxConcurrentTrades', label: 'Max open' },
       { field: 'weekday', label: 'Weekday (Mon-Sun)' },
       { field: 'key', label: 'Day (calendar order)' }
     ],
@@ -375,30 +384,38 @@ const TimeView: React.FC<Props> = ({
       ? dayStats.reduce((acc, stat) => acc + stat.tradesCount, 0) / dayStats.length
       : 0;
 
-  const setYear = (year: number) => setTimeSelection({ selectedYear: year });
+  const setYear = (year: number) => navigate(() => setTimeSelection({ selectedYear: year }));
   const setMonth = (month: number) =>
-    setTimeSelection({ selectedYear: selection.selectedYear, selectedMonth: month });
+    navigate(() =>
+      setTimeSelection({ selectedYear: selection.selectedYear, selectedMonth: month })
+    );
   const setDay = (day: number) =>
-    setTimeSelection({
-      selectedYear: selection.selectedYear,
-      selectedMonth: selection.selectedMonth,
-      selectedDay: day
-    });
+    navigate(() =>
+      setTimeSelection({
+        selectedYear: selection.selectedYear,
+        selectedMonth: selection.selectedMonth,
+        selectedDay: day
+      })
+    );
   const setBucket = (bucket: string) =>
-    setTimeSelection({
-      selectedYear: selection.selectedYear,
-      selectedMonth: selection.selectedMonth,
-      selectedDay: selection.selectedDay,
-      selectedTimeBucket: bucket
-    });
+    navigate(() =>
+      setTimeSelection({
+        selectedYear: selection.selectedYear,
+        selectedMonth: selection.selectedMonth,
+        selectedDay: selection.selectedDay,
+        selectedTimeBucket: bucket
+      })
+    );
   const setMinuteBucket = (bucket: string) =>
-    setTimeSelection({
-      selectedYear: selection.selectedYear,
-      selectedMonth: selection.selectedMonth,
-      selectedDay: selection.selectedDay,
-      selectedTimeBucket: selection.selectedTimeBucket,
-      selectedMinuteBucket: bucket
-    });
+    navigate(() =>
+      setTimeSelection({
+        selectedYear: selection.selectedYear,
+        selectedMonth: selection.selectedMonth,
+        selectedDay: selection.selectedDay,
+        selectedTimeBucket: selection.selectedTimeBucket,
+        selectedMinuteBucket: bucket
+      })
+    );
 
   const renderGrid = (
     stats: GroupStats[],
@@ -453,7 +470,7 @@ const TimeView: React.FC<Props> = ({
       <div className="flex items-center space-x-2 text-sm">
         <button
           className={`font-semibold ${nightMode ? 'hover:text-slate-200' : 'hover:text-slate-900'}`}
-          onClick={() => setTimeSelection({})}
+          onClick={() => navigate(() => setTimeSelection({}))}
         >
           All Years
         </button>
@@ -462,7 +479,7 @@ const TimeView: React.FC<Props> = ({
             <span>›</span>
             <button
               className={`font-semibold ${nightMode ? 'hover:text-slate-200' : 'hover:text-slate-900'}`}
-              onClick={() => setTimeSelection({ selectedYear: selection.selectedYear })}
+              onClick={() => navigate(() => setTimeSelection({ selectedYear: selection.selectedYear }))}
             >
               {selection.selectedYear}
             </button>
@@ -474,10 +491,12 @@ const TimeView: React.FC<Props> = ({
             <button
               className={`font-semibold ${nightMode ? 'hover:text-slate-200' : 'hover:text-slate-900'}`}
               onClick={() =>
-                setTimeSelection({
-                  selectedYear: selection.selectedYear,
-                  selectedMonth: selection.selectedMonth
-                })
+                navigate(() =>
+                  setTimeSelection({
+                    selectedYear: selection.selectedYear,
+                    selectedMonth: selection.selectedMonth
+                  })
+                )
               }
             >
               Month {selection.selectedMonth}
@@ -490,11 +509,13 @@ const TimeView: React.FC<Props> = ({
             <button
               className={`font-semibold ${nightMode ? 'hover:text-slate-200' : 'hover:text-slate-900'}`}
               onClick={() =>
-                setTimeSelection({
-                  selectedYear: selection.selectedYear,
-                  selectedMonth: selection.selectedMonth,
-                  selectedDay: selection.selectedDay
-                })
+                navigate(() =>
+                  setTimeSelection({
+                    selectedYear: selection.selectedYear,
+                    selectedMonth: selection.selectedMonth,
+                    selectedDay: selection.selectedDay
+                  })
+                )
               }
             >
               Day {selection.selectedDay}

@@ -12,12 +12,9 @@ import FilePicker from './components/upload/FilePicker';
 import { WorkerTrade } from './workers/aggregateWorker';
 import {
   applyFilters,
-  groupByDay,
-  groupByMonth,
-  groupByFiveMinuteBucket,
   groupBySymbol,
-  groupByTimeBucket,
   groupByYear,
+  computeTimeViewStats,
   TimeGroupingBasis
 } from './utils/aggregation';
 import { fetchTradesSmart } from '../tradesCache';
@@ -40,14 +37,20 @@ import { FundamentalMapping, GroupStats, TimeSelection, Trade } from './types/tr
 import { ExchangeFilterMode, isDeltaListed, useDeltaFutures } from './utils/deltaFutures';
 import FileProgress from './components/upload/FileProgress';
 
+const TIME_VIEW_ROOT_KEY = 'years';
+
 function drillLoadingText(sel: TimeSelection): string {
-  if (sel.selectedYear !== undefined && sel.selectedMonth !== undefined && sel.selectedDay !== undefined) {
-    return `Loading hours for ${sel.selectedYear}-${String(sel.selectedMonth).padStart(2, '0')}-${String(sel.selectedDay).padStart(2, '0')}`;
-  }
-  if (sel.selectedYear !== undefined && sel.selectedMonth !== undefined) {
+  if (sel.selectedYear === undefined) return 'Loading years';
+  if (sel.selectedMonth === undefined) return `Loading months in ${sel.selectedYear}`;
+  if (sel.selectedDay === undefined) {
     return `Loading days in ${sel.selectedYear}-${String(sel.selectedMonth).padStart(2, '0')}`;
   }
-  if (sel.selectedYear !== undefined) return `Loading months in ${sel.selectedYear}`;
+  if (sel.selectedTimeBucket === undefined) {
+    return `Loading hours for ${sel.selectedYear}-${String(sel.selectedMonth).padStart(2, '0')}-${String(sel.selectedDay).padStart(2, '0')}`;
+  }
+  if (sel.selectedMinuteBucket === undefined) {
+    return `Loading 5-minute buckets for ${sel.selectedTimeBucket}`;
+  }
   return 'Loading';
 }
 
@@ -205,78 +208,47 @@ const Dashboard: React.FC = () => {
     state.timeSelection.selectedTimeBucket ?? '',
     state.timeSelection.selectedMinuteBucket ?? ''
   ].join('|');
-  const drilled = activeTab === 'time' && state.timeSelection.selectedYear !== undefined;
+  const drilled = state.timeSelection.selectedYear !== undefined;
+  const timeLoadKey = drilled ? selectionKey : TIME_VIEW_ROOT_KEY;
   const [drillPhase, setDrillPhase] = useState<'loading' | 'loaded' | null>(null);
   const [readyKey, setReadyKey] = useState('');
+  const [yearStats, setYearStats] = useState<GroupStats[]>([]);
   const [drillStats, setDrillStats] = useState<{
     month: GroupStats[];
     day: GroupStats[];
     time: GroupStats[];
     minutes: GroupStats[];
   }>({ month: [], day: [], time: [], minutes: [] });
-  const [drillTrades, setDrillTrades] = useState<Trade[] | null>(null);
+  const [timeViewTrades, setTimeViewTrades] = useState<Trade[]>([]);
 
-  const yearStats = useMemo(
-    () => groupByYear(applyFilters(scopedTrades, state.activeFilters, {}, groupingBasis), groupingBasis),
+  const tradesAfterActiveFilters = useMemo(
+    () => applyFilters(scopedTrades, state.activeFilters, {}, groupingBasis),
     [scopedTrades, state.activeFilters, groupingBasis]
   );
 
-  const syncTrades = useMemo(
-    () =>
-      drilled ? null : applyFilters(scopedTrades, state.activeFilters, state.timeSelection, groupingBasis),
-    [drilled, scopedTrades, state.activeFilters, state.timeSelection, groupingBasis]
-  );
+  const beginTimeViewLoad = () => {
+    setReadyKey('');
+    setDrillPhase('loading');
+  };
 
   useEffect(() => {
-    if (!drilled) {
-      setDrillPhase(null);
-      setReadyKey('');
-      setDrillTrades(null);
-      return;
-    }
+    if (activeTab !== 'time') return;
     let cancelled = false;
     let hideTimer = 0;
-    const key = selectionKey;
+    const key = timeLoadKey;
     const sel = state.timeSelection;
+    setReadyKey('');
     setDrillPhase('loading');
     const timer = window.setTimeout(() => {
-      const base = applyFilters(scopedTrades, state.activeFilters, {}, groupingBasis);
-      const month =
-        sel.selectedYear !== undefined ? groupByMonth(base, sel.selectedYear, groupingBasis) : [];
-      const day =
-        sel.selectedYear !== undefined && sel.selectedMonth !== undefined
-          ? groupByDay(base, sel.selectedYear, sel.selectedMonth, groupingBasis)
-          : [];
-      const time =
-        sel.selectedYear !== undefined &&
-        sel.selectedMonth !== undefined &&
-        sel.selectedDay !== undefined
-          ? groupByTimeBucket(
-              base,
-              sel.selectedYear,
-              sel.selectedMonth,
-              sel.selectedDay,
-              groupingBasis
-            )
-          : [];
-      const minutes =
-        sel.selectedYear !== undefined &&
-        sel.selectedMonth !== undefined &&
-        sel.selectedDay !== undefined &&
-        sel.selectedTimeBucket !== undefined
-          ? groupByFiveMinuteBucket(
-              base,
-              sel.selectedYear,
-              sel.selectedMonth,
-              sel.selectedDay,
-              Number(sel.selectedTimeBucket.split(':')[0]),
-              groupingBasis
-            )
-          : [];
-      const trades = applyFilters(scopedTrades, state.activeFilters, sel, groupingBasis);
       if (cancelled) return;
-      setDrillStats({ month, day, time, minutes });
-      setDrillTrades(trades);
+      if (!drilled) {
+        setYearStats(groupByYear(tradesAfterActiveFilters, groupingBasis));
+        setDrillStats({ month: [], day: [], time: [], minutes: [] });
+        setTimeViewTrades(tradesAfterActiveFilters);
+      } else {
+        setDrillStats(computeTimeViewStats(tradesAfterActiveFilters, sel, groupingBasis));
+        setTimeViewTrades(applyFilters(scopedTrades, state.activeFilters, sel, groupingBasis));
+      }
       setReadyKey(key);
       window.requestAnimationFrame(() => {
         if (cancelled) return;
@@ -291,19 +263,39 @@ const Dashboard: React.FC = () => {
       window.clearTimeout(timer);
       window.clearTimeout(hideTimer);
     };
-    // selectionKey already captures timeSelection. activeFilters identity is stable until filters change.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drilled, selectionKey, scopedTrades, plainFilters, groupingBasis]);
+  }, [
+    activeTab,
+    timeLoadKey,
+    drilled,
+    tradesAfterActiveFilters,
+    groupingBasis,
+    scopedTrades,
+    state.activeFilters,
+    state.timeSelection
+  ]);
 
-  const drillReady = drilled && readyKey === selectionKey;
-  const drillPending = drilled && !drillReady;
-  const currentTrades = drillPending ? [] : drillReady ? drillTrades || [] : syncTrades || [];
+  const timeViewReady = activeTab === 'time' && readyKey === timeLoadKey;
+  const timeViewPending = activeTab === 'time' && !timeViewReady;
+  const currentTrades = useMemo(() => {
+    if (activeTab === 'time') {
+      return timeViewReady ? timeViewTrades : [];
+    }
+    return applyFilters(scopedTrades, state.activeFilters, state.timeSelection, groupingBasis);
+  }, [
+    activeTab,
+    timeViewReady,
+    timeViewTrades,
+    scopedTrades,
+    state.activeFilters,
+    state.timeSelection,
+    groupingBasis
+  ]);
 
   const filterTradesRef = useRef<Trade[]>([]);
-  if (!drillPending) filterTradesRef.current = currentTrades;
-  const filterTrades = drillPending ? filterTradesRef.current : currentTrades;
+  if (!timeViewPending) filterTradesRef.current = currentTrades;
+  const filterTrades = timeViewPending ? filterTradesRef.current : currentTrades;
   const drillBanner =
-    drillPending || drillPhase === 'loading' ? 'loading' : drillPhase === 'loaded' ? 'loaded' : null;
+    timeViewPending || drillPhase === 'loading' ? 'loading' : drillPhase === 'loaded' ? 'loaded' : null;
 
   const avgTradesPerDay = useMemo(() => {
     const counts = new Map<string, number>();
@@ -497,7 +489,13 @@ const Dashboard: React.FC = () => {
 
             <div className="mt-6 mb-4">
               <div className="flex justify-between items-center">
-                {!filtersHidden && <FilterBar trades={filterTrades} nightMode={nightMode} />}
+                {!filtersHidden && (
+                  <FilterBar
+                    trades={filterTrades}
+                    nightMode={nightMode}
+                    onFilterChange={activeTab === 'time' ? beginTimeViewLoad : undefined}
+                  />
+                )}
               <button
                 className={`text-xs font-semibold px-3 py-2 rounded-full border shadow-sm ${
                   nightMode
@@ -569,11 +567,11 @@ const Dashboard: React.FC = () => {
             {activeTab === 'time' ? (
               <>
                 <TimeView
-                  yearStats={yearStats}
-                  monthStats={drillReady ? drillStats.month : []}
-                  dayStats={drillReady ? drillStats.day : []}
-                  timeStats={drillReady ? drillStats.time : []}
-                  minuteStats={drillReady ? drillStats.minutes : []}
+                  yearStats={timeViewReady ? yearStats : []}
+                  monthStats={timeViewReady ? drillStats.month : []}
+                  dayStats={timeViewReady ? drillStats.day : []}
+                  timeStats={timeViewReady ? drillStats.time : []}
+                  minuteStats={timeViewReady ? drillStats.minutes : []}
                   loading={drillBanner === 'loading'}
                   statusNote={
                     drillBanner === 'loading'
@@ -584,9 +582,13 @@ const Dashboard: React.FC = () => {
                   }
                   nightMode={nightMode}
                   groupingBasis={groupingBasis}
-                  onGroupingBasisChange={setGroupingBasis}
+                  onNavigateStart={beginTimeViewLoad}
+                  onGroupingBasisChange={(basis) => {
+                    beginTimeViewLoad();
+                    setGroupingBasis(basis);
+                  }}
                 />
-                {!drillPending && (
+                {timeViewReady && (
                 <div
                   className={`mt-8 card p-4 ${nightMode ? 'bg-slate-900 text-slate-100 border border-slate-800' : ''}`}
                 >

@@ -177,11 +177,17 @@ function applyPlSoFar(stats: GroupStats[]): GroupStats[] {
   });
 }
 
+function pushGrouped<K>(map: Map<K, Trade[]>, key: K, trade: Trade) {
+  const list = map.get(key);
+  if (list) list.push(trade);
+  else map.set(key, [trade]);
+}
+
 export function groupByYear(trades: Trade[], basis: TimeGroupingBasis = 'opening'): GroupStats[] {
   const grouped = new Map<number, Trade[]>();
   trades.forEach((t) => {
     const year = tradePartsForBasis(t, basis).year;
-    grouped.set(year, [...(grouped.get(year) || []), t]);
+    pushGrouped(grouped, year, t);
   });
   return Array.from(grouped.entries())
     .map(([year, list]) => {
@@ -201,7 +207,7 @@ export function groupByMonth(
   trades.forEach((t) => {
     const parts = tradePartsForBasis(t, basis);
     if (parts.year !== year) return;
-    grouped.set(parts.month, [...(grouped.get(parts.month) || []), t]);
+    pushGrouped(grouped, parts.month, t);
   });
   return applyPlSoFar(
     Array.from(grouped.entries())
@@ -233,7 +239,7 @@ export function groupByDay(
   trades.forEach((t) => {
     const parts = tradePartsForBasis(t, basis);
     if (parts.year !== year || parts.month !== month) return;
-    grouped.set(parts.day, [...(grouped.get(parts.day) || []), t]);
+    pushGrouped(grouped, parts.day, t);
   });
   return applyPlSoFar(
     Array.from(grouped.entries())
@@ -262,7 +268,7 @@ export function groupByTimeBucket(
   trades.forEach((t) => {
     const parts = tradePartsForBasis(t, basis);
     if (parts.year !== year || parts.month !== month || parts.day !== day) return;
-    grouped.set(parts.timeBucket, [...(grouped.get(parts.timeBucket) || []), t]);
+    pushGrouped(grouped, parts.timeBucket, t);
   });
   return applyPlSoFar(
     Array.from(grouped.entries())
@@ -293,7 +299,7 @@ export function groupByFiveMinuteBucket(
   trades.forEach((t) => {
     const parts = tradePartsForBasis(t, basis);
     if (parts.year !== year || parts.month !== month || parts.day !== day || parts.hour !== hour) return;
-    grouped.set(parts.fiveMinuteBucket, [...(grouped.get(parts.fiveMinuteBucket) || []), t]);
+    pushGrouped(grouped, parts.fiveMinuteBucket, t);
   });
   return Array.from(grouped.entries())
     .map(([bucket, list]) => {
@@ -310,7 +316,7 @@ export function groupByFiveMinuteBucket(
 
 export function groupBySymbol(trades: Trade[]): GroupStats[] {
   const grouped = new Map<string, Trade[]>();
-  trades.forEach((t) => grouped.set(t.symbol, [...(grouped.get(t.symbol) || []), t]));
+  trades.forEach((t) => pushGrouped(grouped, t.symbol, t));
   return Array.from(grouped.entries())
     .map(([symbol, list]) => calcStats(list, symbol, true))
     .sort((a, b) => b.tradesCount - a.tradesCount);
@@ -474,6 +480,42 @@ export function hierarchicalAvgConcurrentFromTradesByDay(trades: Trade[]): numbe
 }
 
 /** For each month with trades, take mean-of-daily avgs; then average those monthly values (for a year bucket). */
+export type TimeViewStatsSlice = {
+  month: GroupStats[];
+  day: GroupStats[];
+  time: GroupStats[];
+  minutes: GroupStats[];
+};
+
+/** Builds only the stat grid for the current time-selection depth (faster drill-down). */
+export function computeTimeViewStats(
+  trades: Trade[],
+  sel: TimeSelection,
+  basis: TimeGroupingBasis = 'opening'
+): TimeViewStatsSlice {
+  const empty: TimeViewStatsSlice = { month: [], day: [], time: [], minutes: [] };
+  const year = sel.selectedYear;
+  if (year === undefined) return empty;
+
+  if (sel.selectedMonth === undefined) {
+    return { ...empty, month: groupByMonth(trades, year, basis) };
+  }
+  const month = sel.selectedMonth;
+  if (sel.selectedDay === undefined) {
+    return { ...empty, day: groupByDay(trades, year, month, basis) };
+  }
+  const day = sel.selectedDay;
+  const time = groupByTimeBucket(trades, year, month, day, basis);
+  if (sel.selectedTimeBucket === undefined) {
+    return { ...empty, time };
+  }
+  const hour = Number(sel.selectedTimeBucket.split(':')[0]);
+  if (!Number.isFinite(hour)) {
+    return { ...empty, time };
+  }
+  return { ...empty, time, minutes: groupByFiveMinuteBucket(trades, year, month, day, hour, basis) };
+}
+
 export function hierarchicalAvgConcurrentFromTradesByMonthRollup(trades: Trade[]): number {
   if (!trades.length) return 0;
   const byMonth = new Map<string, Trade[]>();
