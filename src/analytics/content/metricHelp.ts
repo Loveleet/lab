@@ -180,7 +180,8 @@ export const METRIC_HELP: Record<string, MetricHelpContent> = {
   },
   maxOpen: {
     title: 'Max open',
-    description: 'The highest number of trades that were open at the same time in this whole period (year, month, or day).',
+    description:
+      'Peak concurrent trades using only the trades grouped into this card. For a month, every trade in that month is merged onto one timeline, so the peak can be higher than any single day’s Max open (many days overlap on the busiest date). For a day, only trades assigned to that day count—not trades from other days that are still running. Compare with Max running in the card header, which counts any filtered trade open during that calendar day or month window.',
     example: {
       intro: 'During the day:',
       steps: [
