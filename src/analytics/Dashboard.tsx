@@ -25,7 +25,12 @@ import {
   mapLabTradesToAnalytics
 } from './utils/liveMap';
 import { defaultFileFilterFields, guessMappingFromHeaders, mappingMatchesHeaders } from './utils/mappingGuess';
-import { compactWithMapping, toExcelFile } from './utils/compactSheet';
+import {
+  CANONICAL_MAPPING,
+  compactWithMapping,
+  isCanonicalAnalyticsHeaders,
+  toExcelFile
+} from './utils/compactSheet';
 import { deleteAnalyticsFile, uploadAnalyticsFile } from './utils/fileApi';
 import {
   loadFilterFieldsFromStorage,
@@ -83,13 +88,61 @@ const Dashboard: React.FC = () => {
       requestAnimationFrame(() => setTimeout(resolve, 40));
     });
 
+  const normalizeRows = (
+    rows: Record<string, any>[],
+    mapping: FundamentalMapping,
+    onDone?: () => void
+  ) => {
+    setFileStep(4);
+    const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (ev: MessageEvent<any>) => {
+      if (ev.data?.type === 'normalized') {
+        setTrades(ev.data.trades || []);
+        setWarnings(ev.data.warnings || []);
+        setFileStep(null);
+        onDone?.();
+        worker.terminate();
+      }
+    };
+    worker.onerror = () => {
+      setFileStep(null);
+      worker.terminate();
+    };
+    worker.postMessage({ type: 'normalize', rows, mapping });
+  };
+
+  const openPreparedSheet = (
+    rows: Record<string, any>[],
+    headers: string[],
+    mapping: FundamentalMapping,
+    filterFields: string[],
+    cloudId: string | null
+  ) => {
+    setRawRows(rows);
+    setHeaders(headers);
+    setMapping(mapping);
+    setFilterFields(filterFields.map((fieldName) => ({ fieldName, displayName: fieldName })));
+    setCloudFileId(cloudId);
+    setCloudStatus(cloudId ? '' : '');
+    normalizeRows(rows, mapping);
+  };
+
+  const resolveMapping = (headers: string[]) =>
+    guessMappingFromHeaders(headers) ??
+    (isCanonicalAnalyticsHeaders(headers) ? { ...CANONICAL_MAPPING } : undefined);
+
   const saveMappedFile = async (
     sourceRows: Record<string, any>[],
+    headers: string[],
     name: string,
     previousId: string | null,
     mapping: FundamentalMapping,
     filterFields: string[]
   ) => {
+    if (previousId && isCanonicalAnalyticsHeaders(headers)) {
+      openPreparedSheet(sourceRows, headers, { ...CANONICAL_MAPPING }, filterFields, previousId);
+      return;
+    }
     setFileStep(3);
     await letPaint();
     const compact = compactWithMapping(sourceRows, mapping, filterFields);
@@ -112,22 +165,8 @@ const Dashboard: React.FC = () => {
     });
     const filterNames = Array.from(new Set(renamedFilters.filter(Boolean)));
     setFilterFields(filterNames.map((fieldName) => ({ fieldName, displayName: fieldName })));
-    setFileStep(4);
     await letPaint();
-    const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (ev: MessageEvent<any>) => {
-      if (ev.data?.type === 'normalized') {
-        setTrades(ev.data.trades || []);
-        setWarnings(ev.data.warnings || []);
-        setFileStep(null);
-        worker.terminate();
-      }
-    };
-    worker.onerror = () => {
-      setFileStep(null);
-      worker.terminate();
-    };
-    worker.postMessage({ type: 'normalize', rows: compact.rows, mapping: compact.mapping });
+    normalizeRows(compact.rows, compact.mapping);
     setCloudStatus('Saving the smaller file…');
     await letPaint();
     uploadAnalyticsFile(toExcelFile(name || 'analytics.xlsx', compact.headers, compact.rows))
@@ -641,7 +680,7 @@ const Dashboard: React.FC = () => {
         nightMode={nightMode}
         onApply={(mapping, filterFields) => {
           mappingConfirmed.current = true;
-          saveMappedFile(rawRows, fileName, cloudFileId, mapping, filterFields);
+          saveMappedFile(rawRows, state.headers, fileName, cloudFileId, mapping, filterFields);
         }}
       />
       <FilePicker
@@ -658,38 +697,28 @@ const Dashboard: React.FC = () => {
           setFileName(name);
           setCloudFileId(fileId ?? null);
           setCloudStatus('');
-          const guessed = guessMappingFromHeaders(headers);
-          if (!guessed) {
-            const stored = loadMappingFromStorage();
-            const remembered = stored && mappingMatchesHeaders(stored, headers) ? stored : undefined;
-            if (remembered) {
-              const filters = (loadFilterFieldsFromStorage() || []).filter((field) => headers.includes(field));
-              saveMappedFile(rows, name, fileId ?? null, remembered, filters);
+          const mapping = resolveMapping(headers);
+          if (mapping) {
+            const filters = defaultFileFilterFields(headers).map((f) => f.fieldName);
+            if (fileId && isCanonicalAnalyticsHeaders(headers)) {
+              openPreparedSheet(rows, headers, mapping, filters, fileId);
               return;
             }
-            setMapping(undefined);
-            setFileStep(2);
-            setMappingOpen(true);
+            setMapping(mapping);
+            setFilterFields(defaultFileFilterFields(headers));
+            normalizeRows(rows, mapping);
             return;
           }
-          setMapping(guessed);
-          setFilterFields(defaultFileFilterFields(headers));
-          setFileStep(4);
-          const worker = new Worker(new URL('./workers/csvWorker.ts', import.meta.url), { type: 'module' });
-          worker.onmessage = (ev: MessageEvent<any>) => {
-            if (ev.data?.type === 'normalized') {
-              setTrades(ev.data.trades || []);
-              setWarnings(ev.data.warnings || []);
-              setFileStep(null);
-              worker.terminate();
-            }
-          };
-          worker.onerror = () => {
-            setFileStep(2);
-            setMappingOpen(true);
-            worker.terminate();
-          };
-          worker.postMessage({ type: 'normalize', rows, mapping: guessed });
+          const stored = loadMappingFromStorage();
+          const remembered = stored && mappingMatchesHeaders(stored, headers) ? stored : undefined;
+          if (remembered) {
+            const filters = (loadFilterFieldsFromStorage() || []).filter((field) => headers.includes(field));
+            saveMappedFile(rows, headers, name, fileId ?? null, remembered, filters);
+            return;
+          }
+          setMapping(undefined);
+          setFileStep(2);
+          setMappingOpen(true);
         }}
         onCloudSave={(status, message) => {
           if (status === 'saving') setCloudStatus('saving to cloud…');

@@ -118,6 +118,7 @@ const FilePicker: React.FC<Props> = ({ open, onClose, nightMode, onParsed, onClo
       const buffer = await downloadAnalyticsFile(item.id);
       reportStage(1);
       await parseAndClose(buffer, item.filename, item.id);
+      reportStage(null);
     } catch (err: any) {
       reportStage(null);
       setError(err?.message || 'Could not open file');

@@ -12,6 +12,12 @@ export const CANONICAL_MAPPING: FundamentalMapping = {
   actionCol: 'action'
 };
 
+/** True when this workbook was already slimmed and saved for analytics (re-open skips re-upload). */
+export function isCanonicalAnalyticsHeaders(headers: string[]): boolean {
+  const set = new Set(headers.map((h) => String(h).trim()));
+  return Object.values(CANONICAL_MAPPING).every((col) => set.has(col));
+}
+
 export type CompactedSheet = {
   headers: string[];
   rows: Record<string, any>[];
