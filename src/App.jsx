@@ -48,6 +48,8 @@ import {
   overlayPositionKey,
 } from "./tradeFilterUtils";
 import { getRobustSymbolOptional } from "./tradeSymbolUtils";
+import ExchangeFilterToggle from "./analytics/components/filters/ExchangeFilterToggle";
+import { isDeltaListed, useDeltaFutures } from "./analytics/utils/deltaFutures";
 
 function tradeSignalFrom(trade) {
   return trade?.signalfrom ?? trade?.signalFrom ?? trade?.SignalFrom ?? "";
@@ -595,6 +597,19 @@ const [selectedExchanges, setSelectedExchanges] = useState(() => {
 useEffect(() => {
   localStorage.setItem("selectedExchanges", JSON.stringify(selectedExchanges));
 }, [selectedExchanges]);
+const [pairExchangeMode, setPairExchangeMode] = useState(() => {
+  try {
+    const saved = localStorage.getItem("dashboardPairExchangeMode");
+    if (saved === "both" || saved === "delta" || saved === "binance") return saved;
+  } catch (_) {}
+  return "both";
+});
+useEffect(() => {
+  try {
+    localStorage.setItem("dashboardPairExchangeMode", pairExchangeMode);
+  } catch (_) {}
+}, [pairExchangeMode]);
+const { bases: deltaPairBases, count: deltaPairCount, loading: deltaPairsLoading } = useDeltaFutures();
 const [selectedClients, setSelectedClients] = useState(() => {
   try {
     const saved = localStorage.getItem("selectedClients");
@@ -1171,11 +1186,20 @@ const filteredTradeData = useMemo(() => {
       if (isClosedTradeType(trade) && !getTradeCloseMoment(trade)) return false;
     }
 
+    if (pairExchangeMode !== "both" && deltaPairBases.size) {
+      const sym = getRobustSymbolOptional(trade.pair || trade.symbol);
+      if (sym) {
+        const onDelta = isDeltaListed(sym, deltaPairBases);
+        if (pairExchangeMode === "delta" && !onDelta) return false;
+        if (pairExchangeMode === "binance" && onDelta) return false;
+      }
+    }
+
     return true;
   });
 
   return baseFiltered;
-}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter, selectedExchanges, selectedClients]);
+}, [tradeData, selectedSignals, selectedMachines, selectedIntervals, selectedActions, fromDate, toDate, viewDay, dayViewActive, includeMinClose, fontSizeLevel, liveFilter, selectedExchanges, selectedClients, pairExchangeMode, deltaPairBases]);
 
 // Debug: log machine coverage and trade counts (raw vs filtered)
 useEffect(() => {
@@ -3056,6 +3080,17 @@ useEffect(() => {
                   +
                 </button>
               </div>
+            </ToolbarSegment>
+
+            <ToolbarSegment label="Pairs" tone="sky" className="min-w-[16rem]">
+              <ExchangeFilterToggle
+                compact
+                nightMode
+                mode={pairExchangeMode}
+                onChange={setPairExchangeMode}
+                pairCount={deltaPairCount}
+                loading={deltaPairsLoading}
+              />
             </ToolbarSegment>
 
             <ToolbarSegment label="Auto Position" tone="rose" className="min-w-[18rem]">
