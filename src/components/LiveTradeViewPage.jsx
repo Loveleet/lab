@@ -33,6 +33,20 @@ const columnOptions = [
 
 const masterIntervals = ['1m','3m','5m','15m','30m','1h','4h','1d'];
 
+const HENKIN_HIDDEN_SIGNAL_INTERVALS = new Set(['15m', '1h']);
+const HENKIN_SIGNAL_FIELD_KEYS = new Set([
+  'ha_low', 'ha_high', 'ha_open', 'ha_close', 'ha_color',
+  'henkin_candle_pattern_signal', 'candle_pattern_signal_henkin',
+  'price_vs_ha_open', 'candle_strength_henkin',
+]);
+
+function isHenkinFieldHiddenForInterval(interval, fieldKey) {
+  if (!HENKIN_HIDDEN_SIGNAL_INTERVALS.has(interval)) return false;
+  const k = String(fieldKey || '').toLowerCase();
+  if (HENKIN_SIGNAL_FIELD_KEYS.has(k)) return true;
+  return k.startsWith('ha_') || k.includes('henkin') || k.includes('heiken');
+}
+
 const commonColumnOptions = [
   { label: 'ID', value: 'id' },
   { label: 'UID', value: 'uid' },
@@ -2886,7 +2900,7 @@ const LiveTradeViewPage = () => {
                             <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 11, opacity: 0.9 }}>Row {summary.length - rowIdx} (last {summary.length})</div>
                             {typeof row === 'object' && row !== null && (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                {Object.entries(row).filter(([k, v]) => v != null && k !== 'time').slice(0, 14).map(([key, value]) => (
+                                {Object.entries(row).filter(([k, v]) => v != null && k !== 'time' && !isHenkinFieldHiddenForInterval(interval, k)).slice(0, 14).map(([key, value]) => (
                                   <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 6, fontSize: 11 }}>
                                     <span style={{ opacity: 0.8 }}>{key}</span>
                                     <span style={{ fontWeight: 500 }}>{typeof value === 'number' ? (Number.isInteger(value) ? value : value?.toFixed?.(4) ?? value) : String(value)}</span>

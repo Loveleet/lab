@@ -84,35 +84,65 @@ function positionPl(p) {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Match open exchange leg to a running trade (client + venue + symbol + side). */
+export function matchExchangePosition(trade, positions) {
+  if (!trade || !Array.isArray(positions) || !positions.length) return null;
+  const type = String(trade?.type || "");
+  if (type !== "running" && type !== "hedge_hold") return null;
+  const sym =
+    getRobustSymbolOptional(trade?.pair || trade?.symbol) ||
+    String(trade?.pair || trade?.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const action = String(trade?.action || "").toUpperCase();
+  if (!sym || (action !== "BUY" && action !== "SELL")) return null;
+  const venue = tradeVenue(trade);
+  const cid = tradeClientId(trade);
+
+  const legs = [];
+  for (const p of positions) {
+    const pSym =
+      getRobustSymbolOptional(p?.symbol) ||
+      String(p?.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+    if (pSym !== sym) continue;
+    if (positionAction(p) !== action) continue;
+    const pVenue = String(p?.exchange || "binance").trim().toLowerCase() === "delta" ? "delta" : "binance";
+    const pCid = Number.isFinite(parseInt(p?.client_id, 10)) ? parseInt(p.client_id, 10) : 0;
+    legs.push({ pos: p, venue: pVenue, cid: pCid });
+  }
+  if (!legs.length) return null;
+  const exact = legs.filter((l) => l.cid === cid && l.venue === venue);
+  const house = legs.filter((l) => l.cid === 0 && l.venue === venue);
+  const venueOnly = legs.filter((l) => l.venue === venue);
+  return (house[0] || exact[0] || venueOnly[0] || legs[0])?.pos ?? null;
+}
+
+export function positionUnrealizedPl(p) {
+  return positionPl(p);
+}
+
+/** Approximate position size in USDT (notional or qty × entry/mark). */
+export function positionNotionalUsd(p) {
+  if (!p) return null;
+  const notional = parseFloat(p.notional);
+  if (Number.isFinite(notional) && notional > 0) return notional;
+  const amt = Math.abs(parseFloat(p.positionAmt ?? p.size ?? 0));
+  if (!Number.isFinite(amt) || amt <= 0) return null;
+  const entry = parseFloat(p.entryPrice ?? p.entry_price);
+  if (Number.isFinite(entry) && entry > 0) return entry * amt;
+  const mark = parseFloat(p.markPrice ?? p.mark_price);
+  if (Number.isFinite(mark) && mark > 0) return mark * amt;
+  return null;
+}
+
 export function applyLivePlFromPositions(trades, positions) {
   if (!Array.isArray(trades) || !trades.length || !Array.isArray(positions) || !positions.length) {
     return trades;
   }
-  const legs = [];
-  for (const p of positions) {
-    const sym = getRobustSymbolOptional(p?.symbol) || String(p?.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    const pl = positionPl(p);
-    if (!sym || pl == null) continue;
-    const venue = String(p?.exchange || "binance").trim().toLowerCase() === "delta" ? "delta" : "binance";
-    const cid = Number.isFinite(parseInt(p?.client_id, 10)) ? parseInt(p.client_id, 10) : 0;
-    legs.push({ sym, action: positionAction(p), pl, venue, cid });
-  }
-  if (!legs.length) return trades;
   return trades.map((t) => {
-    const type = String(t?.type || "");
-    if (type !== "running" && type !== "hedge_hold") return t;
-    const sym = getRobustSymbolOptional(t?.pair || t?.symbol) || String(t?.pair || t?.symbol || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-    const action = String(t?.action || "").toUpperCase();
-    if (!sym || (action !== "BUY" && action !== "SELL")) return t;
-    const venue = tradeVenue(t);
-    const cid = tradeClientId(t);
-    const sameSymAction = legs.filter((l) => l.sym === sym && l.action === action);
-    if (!sameSymAction.length) return t;
-    const exact = sameSymAction.filter((l) => l.cid === cid && l.venue === venue);
-    const house = sameSymAction.filter((l) => l.cid === 0 && l.venue === venue);
-    const venueOnly = sameSymAction.filter((l) => l.venue === venue);
-    const pick = house[0] || exact[0] || venueOnly[0] || sameSymAction[0];
-    return { ...t, pl_after_comm: pick.pl, Pl_after_comm: pick.pl };
+    const pos = matchExchangePosition(t, positions);
+    if (!pos) return t;
+    const pl = positionPl(pos);
+    if (pl == null) return t;
+    return { ...t, pl_after_comm: pl, Pl_after_comm: pl };
   });
 }
 

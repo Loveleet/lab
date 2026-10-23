@@ -5,7 +5,13 @@ import { formatTradeData } from "./TableView";
 import { LogoutButton, UserEmailDisplay } from "../auth";
 import { API_BASE_URL, api, apiFetch, fetchPythonApi } from "../config";
 import { getRobustSymbol, getSymbolFromUniqueId } from "../tradeSymbolUtils";
-import { tradeClientId, tradeVenue } from "../tradeFilterUtils";
+import {
+  tradeClientId,
+  tradeVenue,
+  matchExchangePosition,
+  positionNotionalUsd,
+  positionUnrealizedPl,
+} from "../tradeFilterUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
@@ -121,6 +127,22 @@ const SECTION_IDS = ["information", "binanceData", "chart"];
 const SECTION_LABELS = { information: "Information", binanceData: "Binance Data", chart: "Chart" };
 
 const INTERVALS = ["5m", "15m", "1h", "4h"];
+
+/** Heikin/Ashi signal rows are not shown for these intervals (still computed on 5m/4h). */
+const HENKIN_HIDDEN_INTERVALS = new Set(["15m", "1h"]);
+const HENKIN_SIGNAL_KEYS = new Set([
+  "ha_low",
+  "ha_high",
+  "ha_color",
+  "henkin_candle_pattern_signal",
+  "price_vs_ha_open",
+]);
+
+function isHenkinSignalHidden(interval, signalKey) {
+  if (!HENKIN_HIDDEN_INTERVALS.has(interval)) return false;
+  const k = String(signalKey || "").toLowerCase();
+  return HENKIN_SIGNAL_KEYS.has(k);
+}
 // Display order: current first, then prev, then prior (API summary is [prior, prev, current] = index 0,1,2)
 const ROW_LABELS = ["current_row", "prev row", "prior row"];
 const ROW_LABEL_TO_DATA_INDEX = { "prior row": 0, "prev row": 1, "current_row": 2 };
@@ -2873,7 +2895,6 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     () => (rawTrade ? formatTradeData(rawTrade, 0) : formattedRow || {}),
     [rawTrade, formattedRow]
   );
-  const allKeys = Object.keys(row).filter((k) => k !== "📋" && row[k] != null && String(row[k]).trim() !== "");
 
   const uniqueId = rawTrade?.unique_id != null ? String(rawTrade.unique_id) : (row.Unique_ID != null ? String(stripHtml(row.Unique_ID)).trim() : null);
 
@@ -3139,6 +3160,36 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const id = setInterval(fetchEmaTrends, 60 * 1000);
     return () => clearInterval(id);
   }, []);
+
+  const displayRow = useMemo(() => {
+    const base = row;
+    const positions = exchangePositionData?.positions;
+    if (!rawTrade || !Array.isArray(positions) || !positions.length) return base;
+    const pos = matchExchangePosition(rawTrade, positions);
+    if (!pos) return base;
+    const out = { ...base };
+    const pl = positionUnrealizedPl(pos);
+    if (pl != null) out.PL = pl.toFixed(2);
+    const invest = positionNotionalUsd(pos);
+    if (invest != null) out.Investment = `$${invest.toFixed(2)}`;
+    const amt = parseFloat(pos.positionAmt ?? pos.size ?? 0);
+    const qty = Number.isFinite(amt) ? Math.abs(amt) : null;
+    const entry = parseFloat(pos.entryPrice ?? pos.entry_price);
+    if (qty != null && qty > 0) {
+      const action = String(rawTrade?.action || "").toUpperCase();
+      if (action === "BUY") out.Buy_Qty = qty;
+      if (action === "SELL") out.Sell_Qty = qty;
+      out.Position_Amt = String(qty);
+    }
+    if (Number.isFinite(entry) && entry > 0) out.Entry_Price = entry.toFixed(6);
+    const upl = positionUnrealizedPl(pos);
+    if (upl != null) out.Unrealized_Profit = upl.toFixed(2);
+    return out;
+  }, [row, rawTrade, exchangePositionData]);
+
+  const allKeys = Object.keys(displayRow).filter(
+    (k) => k !== "📋" && displayRow[k] != null && String(displayRow[k]).trim() !== ""
+  );
 
   const [fieldOrder, setFieldOrder] = useState(() => {
     try {
@@ -3903,7 +3954,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                     onClick={() => setSignalsRefreshKey((k) => k + 1)}
                     disabled={signalsLoading || !signalSymbol}
                     className="px-2 py-1 rounded-2xl text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white whitespace-nowrap disabled:opacity-50"
-                    title="Fetch 5m/15m/1h/4h klines from Binance and calculate signals. Does not run automatically."
+                    title="Fetch 5m/15m/1h/4h klines from Binance and calculate signals (15m/1h omit Heikin rows). Does not run automatically."
                   >
                     {signalsLoading ? "Signals…" : "Calculate Signals"}
                   </button>
@@ -4036,6 +4087,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                     if (alertRules && alertRules.length && signalsData?.intervals) {
                       SIGNAL_ROWS.forEach(({ key }) => {
                         columns.forEach((col) => {
+                          if (isHenkinSignalHidden(col.iv, key)) return;
                           const summary = signalsData.intervals[col.iv]?.summary;
                           const rows = Array.isArray(summary) ? summary : [];
                           const v = getSignalCellValue(rows[col.rowIdx], key);
@@ -4085,6 +4137,17 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                 {displayLabel}
                               </td>
                               {columns.map((col, idx) => {
+                                if (isHenkinSignalHidden(col.iv, key)) {
+                                  return (
+                                    <td
+                                      key={`${col.iv}-${col.label}-${idx}`}
+                                      className={`border border-gray-200 dark:border-gray-600 px-0.5 py-0.5 text-center text-gray-400 dark:text-gray-500 truncate max-w-[60px] ${getGroupColor(col.groupIndex)}`}
+                                      title="Heikin signals not shown on 15m/1h"
+                                    >
+                                      —
+                                    </td>
+                                  );
+                                }
                                 const summary = signalsData.intervals[col.iv]?.summary;
                                 const rows = Array.isArray(summary) ? summary : [];
                                 const v = getSignalCellValue(rows[col.rowIdx], key);
@@ -4163,8 +4226,16 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                     <div className="font-semibold uppercase tracking-wide text-teal-700 dark:text-teal-400 mb-1 truncate" style={{ fontSize: "1em" }} title={key.replace(/_/g, " ")}>
                       {key.replace(/_/g, " ")}
                     </div>
-                    <div className="font-medium text-[#222] dark:text-white break-words leading-snug max-h-14 overflow-hidden" style={{ fontSize: "1em" }} title={stripHtml(row[key])}>
-                      {stripHtml(row[key])}
+                    <div
+                      className={`font-medium break-words leading-snug max-h-14 overflow-hidden ${
+                        key === "PL"
+                          ? (parseFloat(stripHtml(displayRow[key])) < 0 ? "text-red-500 dark:text-red-400" : "text-green-600 dark:text-green-400")
+                          : "text-[#222] dark:text-white"
+                      }`}
+                      style={{ fontSize: "1em" }}
+                      title={stripHtml(displayRow[key])}
+                    >
+                      {stripHtml(displayRow[key])}
                     </div>
                   </div>
                 ))}
