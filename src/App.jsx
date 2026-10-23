@@ -45,6 +45,7 @@ import {
   isClosedTradeType,
   applyLivePlFromPositions,
   enrichTradesForExchangeApi,
+  isExchangeSyncTrade,
   pythonAccountQuery,
   overlayPositionKey,
 } from "./tradeFilterUtils";
@@ -117,13 +118,29 @@ async function fetchExchangePositionsForTrades(trades) {
   return positions;
 }
 
-async function tradesWithLiveExchangeOverlay(trades) {
+function normalizeExchangePositions(rows, defaults = {}) {
+  const out = [];
+  for (const p of rows || []) {
+    if (!p || typeof p !== "object") continue;
+    out.push({
+      ...p,
+      client_id: p.client_id ?? defaults.client_id ?? 0,
+      exchange: p.exchange || defaults.exchange || "binance",
+      symbol: p.symbol || defaults.symbol,
+    });
+  }
+  return out;
+}
+
+async function tradesWithLiveExchangeOverlay(trades, extraPositions = []) {
   if (!Array.isArray(trades) || !trades.length) return trades;
   const running = trades.filter(isRunningTrade);
   if (!running.length) return trades;
 
   let enriched = trades;
-  const needsClient = running.some((t) => tradeClientId(t) <= 0 && tradeClientName(t));
+  const needsClient = running.some(
+    (t) => isExchangeSyncTrade(t) && (tradeClientId(t) <= 0 || !String(t.exchange || "").trim())
+  );
   if (needsClient) {
     try {
       const res = await apiFetch("/api/clients");
@@ -132,7 +149,8 @@ async function tradesWithLiveExchangeOverlay(trades) {
     } catch (_) {}
   }
 
-  const livePositions = await fetchExchangePositionsForTrades(enriched.filter(isRunningTrade));
+  const fetched = await fetchExchangePositionsForTrades(enriched.filter(isRunningTrade));
+  const livePositions = [...normalizeExchangePositions(extraPositions), ...fetched];
   if (!livePositions.length) return enriched;
   return applyLivePlFromPositions(enriched, livePositions);
 }
@@ -947,23 +965,23 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
         const extra = (body.errors && body.errors.length) ? ` (${body.errors.length} errors)` : "";
         setExchangeSyncNotice(`${body.message || "Synced"} | open=${n} updated=${upd} inserted=${ins}${extra}`);
       }
-      await refreshAllData();
+      setBinanceRefreshNonce((n) => n + 1);
       const runRes = await apiFetch(`/api/trades/running?_=${Date.now()}`);
       const runJson = runRes.ok ? await runRes.json().catch(() => ({})) : {};
       const running = Array.isArray(runJson.trades) ? runJson.trades : [];
       const fromSync = Array.isArray(body.positions) ? body.positions : [];
-      const fromLive = await fetchExchangePositionsForTrades(running);
-      const livePositions = [...fromSync, ...fromLive];
       if (running.length) {
         const closed = closedTradesRef.current || [];
         const merged = mergeRunningAndClosed(running, closed);
-        setTradeData(await tradesWithLiveExchangeOverlay(merged));
+        const withLive = await tradesWithLiveExchangeOverlay(merged, fromSync);
+        setTradeData(withLive);
+        const applied = withLive.filter(
+          (t) => isRunningTrade(t) && isExchangeSyncTrade(t) && parseFloat(t.investment) > 0
+        ).length;
+        if (applied) {
+          setExchangeSyncNotice((msg) => `${msg || "Synced"} | live values on ${applied} row(s)`);
+        }
       }
-      const applied = livePositions.filter((p) => p && (p.unRealizedProfit != null || p.unrealized_pnl != null)).length;
-      if (applied) {
-        setExchangeSyncNotice((msg) => `${msg || "Synced"} | live PL on ${applied} exchange leg(s)`);
-      }
-      setBinanceRefreshNonce((n) => n + 1);
     } catch (e) {
       setExchangeSyncNotice(e?.message || String(e));
     } finally {

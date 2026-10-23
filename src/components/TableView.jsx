@@ -852,6 +852,26 @@ useEffect(() => {
     };
   }, [filteredRawTrades, binanceRefreshNonce]);
 
+  // When open-position responses arrive, patch Investment / PL on the visible table rows.
+  useEffect(() => {
+    if (!filteredRawTrades.length || !Object.keys(exchangeDataBySymbol).length) return;
+    setFilteredData(
+      filteredRawTrades.map((trade, index) => {
+        const sym = getRobustSymbol(trade.pair || trade.symbol);
+        const key = overlayPositionKey(trade, sym);
+        const exData = exchangeDataBySymbol[key];
+        const base = formatTradeData(trade, index);
+        const pl = overlayUnrealizedPl(exData, trade);
+        const inv = overlayInvestmentUsd(exData, trade);
+        if (pl == null && inv == null) return base;
+        const row = { ...base };
+        if (pl != null) row.PL = pl.toFixed(2);
+        if (inv != null) row.Investment = `$${inv.toFixed(2)}`;
+        return row;
+      })
+    );
+  }, [exchangeDataBySymbol, filteredRawTrades]);
+
   const handleOpenReport = (title, sortedData, fontSizeLevel = 3) => {
     if (!sortedData || sortedData.length === 0) return;
     const reportWindow = window.open("", "_blank", "width=1200,height=600");
