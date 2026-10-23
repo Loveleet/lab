@@ -44,6 +44,7 @@ import {
   tradeClientName,
   isClosedTradeType,
   applyLivePlFromPositions,
+  enrichTradesForExchangeApi,
   pythonAccountQuery,
   overlayPositionKey,
 } from "./tradeFilterUtils";
@@ -114,6 +115,26 @@ async function fetchExchangePositionsForTrades(trades) {
     })
   );
   return positions;
+}
+
+async function tradesWithLiveExchangeOverlay(trades) {
+  if (!Array.isArray(trades) || !trades.length) return trades;
+  const running = trades.filter(isRunningTrade);
+  if (!running.length) return trades;
+
+  let enriched = trades;
+  const needsClient = running.some((t) => tradeClientId(t) <= 0 && tradeClientName(t));
+  if (needsClient) {
+    try {
+      const res = await apiFetch("/api/clients");
+      const data = res.ok ? await res.json().catch(() => ({})) : {};
+      enriched = enrichTradesForExchangeApi(trades, data.clients);
+    } catch (_) {}
+  }
+
+  const livePositions = await fetchExchangePositionsForTrades(enriched.filter(isRunningTrade));
+  if (!livePositions.length) return enriched;
+  return applyLivePlFromPositions(enriched, livePositions);
 }
 
 function collapseSignalSelectionMap(previous) {
@@ -752,8 +773,19 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
           );
           setDemoDataHint(tradeResult.demoHint || null);
           if (tradeResult.stats) setClosedCacheStats(tradeResult.stats);
-          // Paint final merge immediately — don't wait for supertrend/pairstatus/etc.
+          // Paint trades, then overlay exchange PL/investment as soon as positions load
           setTradeData(trades);
+          void tradesWithLiveExchangeOverlay(trades).then((withLive) => {
+            setTradeData((prev) => {
+              const closed = (prev || []).filter(isClosedTrade);
+              const runningLive = withLive.filter(isRunningTrade);
+              const runningPrev = (prev || []).filter(isRunningTrade);
+              return mergeRunningAndClosed(
+                runningLive.length ? runningLive : runningPrev,
+                closed.length ? closed : withLive.filter(isClosedTrade)
+              );
+            });
+          });
         }
       } catch (tradeErr) {
         console.error("[tradesCache] Smart fetch failed, trying legacy /api/trades:", tradeErr);
@@ -829,13 +861,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
 
       let tradesForUi = trades;
       try {
-        const runningOnly = trades.filter(isRunningTrade);
-        if (runningOnly.length) {
-          const livePositions = await fetchExchangePositionsForTrades(runningOnly);
-          if (livePositions.length) {
-            tradesForUi = applyLivePlFromPositions(trades, livePositions);
-          }
-        }
+        tradesForUi = await tradesWithLiveExchangeOverlay(trades);
       } catch (overlayErr) {
         console.warn("[trades] exchange overlay skipped:", overlayErr);
       }
@@ -928,13 +954,10 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       const fromSync = Array.isArray(body.positions) ? body.positions : [];
       const fromLive = await fetchExchangePositionsForTrades(running);
       const livePositions = [...fromSync, ...fromLive];
-      if (running.length || livePositions.length) {
-        setTradeData((prev) =>
-          applyLivePlFromPositions(
-            mergeRunningAndClosed(running.length ? running : (prev || []).filter(isRunningTrade), (prev || []).filter(isClosedTrade)),
-            livePositions
-          )
-        );
+      if (running.length) {
+        const closed = closedTradesRef.current || [];
+        const merged = mergeRunningAndClosed(running, closed);
+        setTradeData(await tradesWithLiveExchangeOverlay(merged));
       }
       const applied = livePositions.filter((p) => p && (p.unRealizedProfit != null || p.unrealized_pnl != null)).length;
       if (applied) {

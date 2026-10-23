@@ -69,6 +69,56 @@ export function tradeVenue(trade) {
   return raw === "delta" ? "delta" : "binance";
 }
 
+export function isExchangeSyncTrade(trade) {
+  if (!trade) return false;
+  const ex = trade.exist_in_exchange;
+  if (ex === true || ex === "true" || ex === 1 || ex === "1") return true;
+  if (typeof ex === "string" && parseFloat(ex) > 0) return true;
+  return String(trade?.signalfrom || trade?.signalFrom || "").trim().toLowerCase() === "exchange_sync";
+}
+
+function clientDisplayNameLower(c) {
+  return [c?.first_name, c?.last_name].filter(Boolean).join(" ").trim().toLowerCase();
+}
+
+/** Fill client_id / exchange on running rows so /api/open-position uses the right keys. */
+export function enrichTradesForExchangeApi(trades, clients) {
+  if (!Array.isArray(trades) || !trades.length) return trades;
+  const byName = new Map();
+  for (const c of clients || []) {
+    const key = clientDisplayNameLower(c);
+    if (key) byName.set(key, c);
+  }
+  if (!byName.size) return trades;
+
+  return trades.map((t) => {
+    if (!isExchangeSyncTrade(t) && String(t?.type || "") !== "running" && String(t?.type || "") !== "hedge_hold") {
+      return t;
+    }
+    const out = { ...t };
+    const nameKey = String(out.client_name || out.clientName || "").trim().toLowerCase();
+    const client = nameKey ? byName.get(nameKey) : null;
+    if (tradeClientId(out) <= 0 && client?.id != null) {
+      out.client_id = client.id;
+    }
+    const accounts = Array.isArray(client?.accounts) ? client.accounts.filter((a) => a?.is_active !== false) : [];
+    const venue = tradeVenue(out);
+    const hasVenue = String(out.exchange || out.Exchange || "").trim();
+    if (!hasVenue && accounts.length === 1) {
+      const ex = String(accounts[0].exchange || "").toLowerCase();
+      if (ex === "delta" || ex === "binance") out.exchange = ex;
+    } else if (!hasVenue && accounts.length > 1) {
+      const delta = accounts.find((a) => String(a.exchange || "").toLowerCase() === "delta");
+      const binance = accounts.find((a) => String(a.exchange || "").toLowerCase() === "binance");
+      if (delta && !binance) out.exchange = "delta";
+      else if (binance && !delta) out.exchange = "binance";
+    } else if (venue === "binance" && accounts.length && accounts.every((a) => String(a.exchange || "").toLowerCase() === "delta")) {
+      out.exchange = "delta";
+    }
+    return out;
+  });
+}
+
 function positionAction(p) {
   const amt = parseFloat(p?.positionAmt ?? p?.size ?? 0);
   let side = String(p?.positionSide || "").toUpperCase();
@@ -112,7 +162,7 @@ export function matchExchangePosition(trade, positions) {
   const exact = legs.filter((l) => l.cid === cid && l.venue === venue);
   const house = legs.filter((l) => l.cid === 0 && l.venue === venue);
   const venueOnly = legs.filter((l) => l.venue === venue);
-  return (house[0] || exact[0] || venueOnly[0] || legs[0])?.pos ?? null;
+  return (exact[0] || house[0] || venueOnly[0] || legs[0])?.pos ?? null;
 }
 
 export function positionUnrealizedPl(p) {
