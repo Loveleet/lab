@@ -133,6 +133,7 @@ export function positionNotionalUsd(p) {
   return null;
 }
 
+/** Overlay live PL, investment, and qty from exchange legs onto running trades. */
 export function applyLivePlFromPositions(trades, positions) {
   if (!Array.isArray(trades) || !trades.length || !Array.isArray(positions) || !positions.length) {
     return trades;
@@ -141,8 +142,23 @@ export function applyLivePlFromPositions(trades, positions) {
     const pos = matchExchangePosition(t, positions);
     if (!pos) return t;
     const pl = positionPl(pos);
-    if (pl == null) return t;
-    return { ...t, pl_after_comm: pl, Pl_after_comm: pl };
+    const invest = positionNotionalUsd(pos);
+    const amt = parseFloat(pos.positionAmt ?? pos.size ?? 0);
+    const qty = Number.isFinite(amt) ? Math.abs(amt) : null;
+    const action = String(t?.action || "").toUpperCase();
+    const out = { ...t };
+    if (pl != null) {
+      out.pl_after_comm = pl;
+      out.Pl_after_comm = pl;
+    }
+    if (invest != null) {
+      out.investment = invest;
+    }
+    if (qty != null && qty > 0) {
+      if (action === "BUY") out.buy_qty = qty;
+      if (action === "SELL") out.sell_qty = qty;
+    }
+    return out;
   });
 }
 

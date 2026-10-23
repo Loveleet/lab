@@ -38,21 +38,36 @@ const isExchangeLiveTrade = (t) => {
 const overlayUnrealizedPl = (exData, raw) => {
   const positions = Array.isArray(exData?.positions) ? exData.positions : [];
   if (!positions.length) return null;
-  const action = String(raw?.action || "").toUpperCase();
-  const want = action === "BUY" ? "LONG" : action === "SELL" ? "SHORT" : "";
-  const pos =
-    (want && positions.find((p) => String(p.positionSide || "").toUpperCase() === want)) ||
-    positions[0];
-  const v = pos?.unRealizedProfit ?? pos?.unrealized_pnl ?? pos?.unrealizedPnl;
-  const n = parseFloat(v);
-  return Number.isFinite(n) ? n : null;
+  const pos = matchExchangePosition(raw, positions);
+  if (!pos) return null;
+  return positionUnrealizedPl(pos);
+};
+
+const overlayInvestmentUsd = (exData, raw) => {
+  const positions = Array.isArray(exData?.positions) ? exData.positions : [];
+  if (!positions.length) return null;
+  const pos = matchExchangePosition(raw, positions);
+  if (!pos) return null;
+  return positionNotionalUsd(pos);
 };
 
 // ReportList.jsx
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import moment from "moment";
-import { isHedgeClosedTrade, isDirectClosedTrade, parseHedge, tradeClientId, tradeClientName, tradeVenue, pythonAccountQuery, overlayPositionKey } from "../tradeFilterUtils";
+import {
+  isHedgeClosedTrade,
+  isDirectClosedTrade,
+  parseHedge,
+  tradeClientId,
+  tradeClientName,
+  tradeVenue,
+  pythonAccountQuery,
+  overlayPositionKey,
+  matchExchangePosition,
+  positionUnrealizedPl,
+  positionNotionalUsd,
+} from "../tradeFilterUtils";
 
 import * as XLSX from "xlsx";
 import { Home, BarChart, FileText, Menu, ChevronDown, ChevronRight } from "lucide-react";
@@ -786,12 +801,18 @@ useEffect(() => {
   setFilteredRawTrades(filteredTrades);
 }, [title, tradeData, activeSubReport, clientData, searchInput]);
 
-  // Fetch live Binance overlay only when Refresh Binance is clicked (not on table/filter refresh)
+  // Fetch live exchange positions for visible exchange-sync rows (and when Refresh Binance bumps nonce)
   useEffect(() => {
-    if (!binanceRefreshNonce || binanceRefreshNonce === lastBinanceNonceRef.current) {
+    const nonce = binanceRefreshNonce || 0;
+    const tradeSig = filteredRawTrades
+      .filter(isExchangeLiveTrade)
+      .map((t) => overlayPositionKey(t, getRobustSymbol(t.pair || t.symbol)))
+      .join("|");
+    const runKey = `${nonce}:${tradeSig}`;
+    if (runKey === lastBinanceNonceRef.current) {
       return;
     }
-    lastBinanceNonceRef.current = binanceRefreshNonce;
+    lastBinanceNonceRef.current = runKey;
     const seen = new Set();
     const jobs = [];
     for (const t of filteredRawTrades.filter(isExchangeLiveTrade)) {
@@ -1609,7 +1630,13 @@ return (
                             {val}
                           </div>
                         ) : (
-                          key === "PL" ? (
+                          key === "Investment" ? (
+                            (() => {
+                              const liveInv = overlayInvestmentUsd(exData, raw);
+                              if (liveInv != null) return `$${liveInv.toFixed(2)}`;
+                              return val;
+                            })()
+                          ) : key === "PL" ? (
                             (() => {
                               const livePl = overlayUnrealizedPl(exData, raw);
                               const shown = livePl != null ? livePl.toFixed(2) : val;

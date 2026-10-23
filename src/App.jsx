@@ -827,8 +827,21 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       const machinesFromTrades = deriveMachinesFromTrades(trades, toMachineKey);
       const signalKeys = deriveSignalsFromTrades(trades);
 
+      let tradesForUi = trades;
+      try {
+        const runningOnly = trades.filter(isRunningTrade);
+        if (runningOnly.length) {
+          const livePositions = await fetchExchangePositionsForTrades(runningOnly);
+          if (livePositions.length) {
+            tradesForUi = applyLivePlFromPositions(trades, livePositions);
+          }
+        }
+      } catch (overlayErr) {
+        console.warn("[trades] exchange overlay skipped:", overlayErr);
+      }
+
       setMachines(machinesFromTrades);
-      setTradeData(trades);
+      setTradeData(tradesForUi);
       setLogData(logs);
       setClientData(machinesFromTrades);
 
