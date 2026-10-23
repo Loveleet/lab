@@ -2936,10 +2936,17 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   const tradePair = rawTrade?.pair || stripHtml(row.Pair) || getSymbolFromUniqueId(uniqueId) || "";
   const signalSymbol = (tradePair && getRobustSymbol(tradePair)) || getSymbolFromUniqueId(uniqueId) || "BTCUSDT";
   const accountFields = useMemo(() => {
-    const cid = tradeClientId(rawTrade || formattedRow);
-    const venue = tradeVenue(rawTrade || formattedRow);
+    const trade = rawTrade || formattedRow;
+    const cid = tradeClientId(trade);
+    const storedEx = readStoredExecuteExchange();
+    const storedCid = readStoredExecuteClientId();
+    const rawEx = String(trade?.exchange || trade?.Exchange || "").trim().toLowerCase();
+    let venue = rawEx === "delta" ? "delta" : rawEx === "binance" ? "binance" : "";
+    if (!venue && storedEx) venue = storedEx === "delta" ? "delta" : "binance";
+    if (!venue) venue = tradeVenue(trade);
+    const resolvedCid = cid > 0 ? cid : storedCid > 0 ? storedCid : 0;
     const out = {};
-    if (cid > 0) out.client_id = cid;
+    if (resolvedCid > 0) out.client_id = resolvedCid;
     if (venue) out.exchange = venue;
     return out;
   }, [rawTrade, formattedRow]);
@@ -3692,21 +3699,35 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const symbol = (row?.symbol || signalSymbol || "").toString().trim().toUpperCase();
     const position_side = (row?.positionSide || "LONG").toString().toUpperCase();
     const amount = (row?.amount ?? "").toString().trim();
+    const exchange = String(accountFields.exchange || "").trim().toLowerCase();
+    const client_id = Number(accountFields.client_id) || 0;
     if (!symbol) throw new Error("Symbol not found");
     if (!amount) throw new Error("Amount required");
+    if (exchange === "delta" && client_id <= 0) {
+      throw new Error("Select a Delta client account for this trade (client_id missing).");
+    }
     const url = api("/api/add-investment");
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(withAccount({ symbol, position_side, amount, password: (password || "").trim() })),
+      body: JSON.stringify(withAccount({
+        symbol,
+        position_side,
+        amount,
+        exchange,
+        client_id,
+        password: (password || "").trim(),
+      })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || data?.error || "Add investment failed");
     if (data?.ok === false) throw new Error(data?.message || "Add investment failed");
     addInvestmentRowRef.current = null;
     setBinanceDataRefreshKey((k) => k + 1);
-    return { successMessage: data?.message || "Investment added." };
-  }, [signalSymbol]);
+    const venueLabel = exchange === "delta" ? "Delta" : "Binance";
+    const acct = client_id > 0 ? `client ${client_id}` : "House";
+    return { successMessage: data?.message || `Investment added on ${venueLabel} (${acct}).` };
+  }, [signalSymbol, withAccount, accountFields]);
   // Clear Order: Frontend → server.js → Python main_binance.closeOrder(symbol). Cancels all open orders (TP/SL) for the symbol.
   const handleClear = useCallback(async ({ password }) => {
     const rowSym = clearOrderSymbolRef.current;
@@ -5153,6 +5174,13 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
               <div className="flex justify-between gap-4">
                 <span className="text-gray-500 dark:text-gray-400">Position side</span>
                 <span className="font-medium text-gray-900 dark:text-white">{addInvestmentPreview.positionSide}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span className="text-gray-500 dark:text-gray-400">Account</span>
+                <span className="font-medium text-gray-900 dark:text-white">
+                  {accountFields.exchange === "delta" ? "Delta" : accountFields.exchange === "binance" ? "Binance" : "—"}
+                  {accountFields.client_id ? ` · client ${accountFields.client_id}` : accountFields.exchange ? " · House" : ""}
+                </span>
               </div>
               <div className="flex justify-between gap-4">
                 <span className="text-gray-500 dark:text-gray-400">Old investment (USDT)</span>
