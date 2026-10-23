@@ -114,11 +114,13 @@ const BinanceIncomeHistoryPage = () => {
     const byKey = new Map();
     historyInDateRange.forEach((row) => {
       if (!row) return;
+      const clientId = row.client_id ?? 0;
+      if (Number(clientId) === 0) return;
       const symbol = (row.symbol || "").toUpperCase();
       if (!symbol) return;
       const exchange = (row.exchange || "binance").toLowerCase();
-      const clientId = row.client_id ?? 0;
-      const clientName = row.client_name || `Client ${clientId}`;
+      const clientName =
+        row.client_name || (Number(clientId) === 0 ? "House" : `Client ${clientId}`);
       const key = `${clientId}|${exchange}|${symbol}`;
       const incomeType = (row.income_type || "").toUpperCase();
       const rawIncome =

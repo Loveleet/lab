@@ -1167,9 +1167,11 @@ const filteredTradeData = useMemo(() => {
     }
 
     const candleTime = trade.candel_time || trade.candle_time || trade.created_at;
+    const isOpenTrade = isRunningLikeTrade(trade);
     if (activeViewDay) {
       if (!matchesSingleDayView(trade, activeViewDay)) return false;
-    } else if (!dayViewActive && (fromDate || toDate)) {
+    } else if (!dayViewActive && (fromDate || toDate) && !isOpenTrade) {
+      // Open/hedge_hold (including exchange_sync) stay visible; date range is for closed history.
       if (!candleTime) return false;
       const tradeTime = moment(candleTime);
       const isDateInRange =
@@ -1178,7 +1180,7 @@ const filteredTradeData = useMemo(() => {
       if (!isDateInRange) return false;
     }
 
-    if (!activeViewDay && !candleTime) return false;
+    if (!activeViewDay && !isOpenTrade && !candleTime) return false;
     if (activeViewDay && !candleTime) {
       const type = getTradeType(trade);
       const needsCandle = !isRunningLikeTrade(trade) && !isClosedTradeType(trade);

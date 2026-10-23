@@ -60,3 +60,6 @@ venv/
 
 # Server-side closed trades JSON (generated at runtime, do not commit)
 data/
+
+# Local copies of VM python (do not commit)
+_vm_*.py

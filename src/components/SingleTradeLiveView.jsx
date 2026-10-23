@@ -9,6 +9,42 @@ import { tradeClientId, tradeVenue } from "../tradeFilterUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
 const REFRESH_INTERVAL_KEY = "refresh_app_main_intervalSec";
+const EXECUTE_EXCHANGE_KEY = "olab_execute_exchange";
+const EXECUTE_CLIENT_KEY = "olab_execute_client_id";
+
+function clientDisplayName(c) {
+  const name = [c?.first_name, c?.last_name].filter(Boolean).join(" ").trim();
+  return name || (c?.id != null ? `Client ${c.id}` : "Client");
+}
+
+function clientHasExchangeAccount(c, exchange) {
+  const ex = String(exchange || "").toLowerCase();
+  return (c?.accounts || []).some(
+    (a) => String(a.exchange || "").toLowerCase() === ex && a.is_active !== false
+  );
+}
+
+function readStoredExecuteExchange() {
+  try {
+    const v = String(localStorage.getItem(EXECUTE_EXCHANGE_KEY) || "").trim().toLowerCase();
+    if (v === "binance" || v === "delta") return v;
+  } catch {}
+  return "";
+}
+
+function readStoredExecuteClientId() {
+  try {
+    const n = parseInt(localStorage.getItem(EXECUTE_CLIENT_KEY) || "0", 10);
+    if (Number.isFinite(n) && n >= 0) return n;
+  } catch {}
+  return 0;
+}
+
+function tradeExecuteSide(rawTrade, row) {
+  const a = String(rawTrade?.action || row?.Action || rawTrade?.position_side || rawTrade?.positionSide || "").toUpperCase();
+  if (a === "SELL" || a === "SHORT") return "SHORT";
+  return "LONG";
+}
 
 const TV_SCRIPT_ID = "tradingview-widget-script-single";
 function loadTradingViewScript(onReady) {
@@ -3165,6 +3201,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   const [partialStopQtyByRow, setPartialStopQtyByRow] = useState({});
   const [hedgePriceByRow, setHedgePriceByRow] = useState({});
   const [executePreview, setExecutePreview] = useState(null);
+  const [executeClients, setExecuteClients] = useState([]);
   const [hedgePreview, setHedgePreview] = useState(null);
   const [hedgeSubmitting, setHedgeSubmitting] = useState(false);
   const [ruleDialog, setRuleDialog] = useState(null);
@@ -3216,6 +3253,25 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   useEffect(() => {
     saveUiSetting(SIGNALS_VIEW_MODE_KEY, signalsTableViewMode);
   }, [signalsTableViewMode, saveUiSetting]);
+
+  const executeModalOpen = Boolean(executePreview);
+  useEffect(() => {
+    if (!executeModalOpen) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch("/api/clients");
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        setExecuteClients(Array.isArray(data.clients) ? data.clients : []);
+      } catch {
+        if (!cancelled) setExecuteClients([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [executeModalOpen]);
 
   // backSplitPercent is no longer used (Binance Data is a single panel now), so we stop updating it.
 
@@ -3472,22 +3528,41 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const symbol = (rowData?.symbol || signalSymbol || (rawTrade?.pair || stripHtml(row.Pair) || "").replace("/", "").trim()).toString().toUpperCase();
     const amount = (rowData?.amount ?? "").toString().trim();
     const stop_price = (rowData?.stop_price ?? "").toString().trim();
+    const exchange = String(rowData?.exchange || "").trim().toLowerCase();
+    const client_id = Number(rowData?.client_id);
+    const position_side = String(rowData?.position_side || "LONG").toUpperCase() === "SHORT" ? "SHORT" : "LONG";
     if (!symbol) throw new Error("Symbol not found");
     if (!amount) throw new Error("Investment amount required");
     if (!stop_price) throw new Error("Stop price required");
+    if (exchange !== "binance" && exchange !== "delta") throw new Error("Select Binance or Delta");
+    if (!Number.isFinite(client_id) || client_id < 0) throw new Error("Select an account");
+    try {
+      localStorage.setItem(EXECUTE_EXCHANGE_KEY, exchange);
+      localStorage.setItem(EXECUTE_CLIENT_KEY, String(client_id));
+    } catch {}
     const url = api("/api/execute");
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(withAccount({ symbol, amount, stop_price, position_side: "LONG", password: (password || "").trim() })),
+      body: JSON.stringify(withAccount({
+        symbol,
+        amount,
+        stop_price,
+        position_side,
+        exchange,
+        client_id,
+        password: (password || "").trim(),
+      })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || data?.error || "Execute failed");
     if (data?.ok === false) throw new Error(data?.message || "Execute failed");
     executeRowRef.current = null;
     setBinanceDataRefreshKey((k) => k + 1);
-    return { successMessage: data?.message || "Order placed." };
-  }, [signalSymbol, rawTrade?.pair, row.Pair]);
+    const venueLabel = exchange === "delta" ? "Delta" : "Binance";
+    const accountLabel = client_id > 0 ? `client ${client_id}` : "House";
+    return { successMessage: data?.message || `Order placed on ${venueLabel} (${accountLabel}).` };
+  }, [signalSymbol, rawTrade?.pair, row.Pair, withAccount]);
   // Flow: Frontend → server.js (Node) → Python. POST to Node /api/end-trade; Node verifies password and proxies to Python.
   const handleEndTrade = useCallback(async ({ password }) => {
     const rowData = endTradeRowRef.current;
@@ -3784,11 +3859,18 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                   const stopPriceVal = rawTrade?.stop_price != null && rawTrade?.stop_price !== ""
                     ? String(rawTrade.stop_price).trim()
                     : String(row.Stop_Price || "").replace(/,/g, "").trim();
+                  const storedEx = readStoredExecuteExchange();
+                  const storedCid = readStoredExecuteClientId();
+                  const exchange = accountFields.exchange || storedEx || "binance";
+                  const clientId = accountFields.client_id > 0 ? accountFields.client_id : storedCid;
                   setExecutePreview({
                     symbol: sym,
                     backInvest,
                     liveInvest: backInvest > 0 ? String(backInvest) : "",
                     stopPrice: stopPriceVal,
+                    exchange,
+                    clientId: Number.isFinite(clientId) ? clientId : 0,
+                    positionSide: tradeExecuteSide(rawTrade, row),
                   });
                 }}
                 className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl-xl bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 hover:from-emerald-600 hover:via-green-600 hover:to-teal-600 text-white text-lg font-bold shadow-lg shadow-emerald-500/40 hover:shadow-emerald-500/50 hover:scale-105 active:scale-100 transition-all min-h-[48px] border-2 border-emerald-400/50 disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100 disabled:cursor-not-allowed"
@@ -4887,6 +4969,51 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                 <span className="font-medium text-gray-900 dark:text-white">{executePreview.symbol}</span>
               </div>
               <div className="flex justify-between gap-4">
+                <span className="text-gray-500 dark:text-gray-400">Side</span>
+                <span className="font-medium text-gray-900 dark:text-white">{executePreview.positionSide || "LONG"}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-gray-500 dark:text-gray-400 whitespace-nowrap">Exchange</label>
+                <select
+                  value={executePreview.exchange === "delta" ? "delta" : "binance"}
+                  onChange={(e) => {
+                    const exchange = e.target.value === "delta" ? "delta" : "binance";
+                    setExecutePreview((p) => {
+                      if (!p) return null;
+                      const stillValid = p.clientId === 0 || executeClients.some((c) => c.id === p.clientId && clientHasExchangeAccount(c, exchange));
+                      return { ...p, exchange, clientId: stillValid ? p.clientId : 0 };
+                    });
+                  }}
+                  className="flex-1 border border-gray-400 dark:border-gray-600 rounded-2xl px-2 py-1.5 bg-white dark:bg-[#333] text-gray-900 dark:text-white"
+                >
+                  <option value="binance">Binance</option>
+                  <option value="delta">Delta</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-gray-500 dark:text-gray-400 whitespace-nowrap">Account</label>
+                <select
+                  value={String(executePreview.clientId ?? 0)}
+                  onChange={(e) => {
+                    const clientId = parseInt(e.target.value, 10);
+                    setExecutePreview((p) => (p ? { ...p, clientId: Number.isFinite(clientId) ? clientId : 0 } : null));
+                  }}
+                  className="flex-1 border border-gray-400 dark:border-gray-600 rounded-2xl px-2 py-1.5 bg-white dark:bg-[#333] text-gray-900 dark:text-white"
+                >
+                  <option value="0">House</option>
+                  {executeClients
+                    .filter((c) => c.is_active !== false && clientHasExchangeAccount(c, executePreview.exchange))
+                    .map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {clientDisplayName(c)}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                House uses lab keys on the selected exchange. A named account uses that client&apos;s keys for the same exchange.
+              </p>
+              <div className="flex justify-between gap-4">
                 <span className="text-gray-500 dark:text-gray-400">Back Invest (USDT)</span>
                 <span className="font-medium text-gray-900 dark:text-white">{(executePreview.backInvest || 0).toFixed(2)}</span>
               </div>
@@ -4919,12 +5046,15 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
               </button>
               <button
                 type="button"
-                disabled={!executePreview.liveInvest || parseFloat(executePreview.liveInvest) <= 0}
+                disabled={!executePreview.liveInvest || parseFloat(executePreview.liveInvest) <= 0 || (executePreview.exchange !== "binance" && executePreview.exchange !== "delta")}
                 onClick={() => {
                   executeRowRef.current = {
                     symbol: executePreview.symbol,
                     amount: executePreview.liveInvest.trim(),
                     stop_price: executePreview.stopPrice.trim(),
+                    exchange: executePreview.exchange === "delta" ? "delta" : "binance",
+                    client_id: Number(executePreview.clientId) || 0,
+                    position_side: executePreview.positionSide === "SHORT" ? "SHORT" : "LONG",
                   };
                   setActionModal({ open: true, type: "execute" });
                   setExecutePreview(null);
