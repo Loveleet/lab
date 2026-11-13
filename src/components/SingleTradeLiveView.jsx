@@ -2968,25 +2968,38 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const callCalculateSignals = async () => {
       setSignalsLoading(true);
       setSignalsError(null);
+      const maxAttempts = 8;
       try {
-        const res = await fetchPythonApi("/api/calculate-signals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ symbol: signalSymbol, candle: "regular" }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (cancelled) return;
-        if (!res.ok) {
-          const msg = data?.message || res.statusText || "Signals service unavailable";
-          setSignalsError(msg);
-          console.warn("[CalculateSignals]", msg);
+        for (let attempt = 1; attempt <= maxAttempts && !cancelled; attempt++) {
+          const res = await fetchPythonApi("/api/calculate-signals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ symbol: signalSymbol, candle: "regular" }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (cancelled) return;
+          if (res.status === 429 && attempt < maxAttempts) {
+            const waitSec = Number(data?.retry_after_sec) || 4;
+            setSignalsError(`${signalSymbol} is computing… retrying in ${waitSec}s`);
+            await new Promise((r) => setTimeout(r, waitSec * 1000));
+            continue;
+          }
+          if (!res.ok) {
+            const msg = data?.message || res.statusText || "Signals service unavailable";
+            setSignalsError(msg);
+            console.warn("[CalculateSignals]", msg);
+            return;
+          }
+          if (data?.ok && data?.intervals) {
+            setSignalsData(data);
+            setSignalsError(null);
+          } else {
+            setSignalsError(data?.message || "No signal data returned");
+          }
           return;
         }
-        if (data?.ok && data?.intervals) {
-          setSignalsData(data);
-          setSignalsError(null);
-        } else {
-          setSignalsError(data?.message || "No signal data returned");
+        if (!cancelled) {
+          setSignalsError(`${signalSymbol} still computing; click Calculate Signals again in a moment.`);
         }
       } catch (e) {
         if (cancelled) return;
@@ -4238,7 +4251,11 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                   <div className="flex flex-col items-center justify-center h-full text-amber-700 dark:text-amber-300 text-center p-3 gap-1">
                     <div className="font-semibold text-sm">Signals unavailable</div>
                     <div className="text-xs opacity-90">{signalsError}</div>
-                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">Start api_signals.py on port 5001, or restart api-signals on the cloud server.</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                      {/computing|retry later/i.test(signalsError || "")
+                        ? "If this persists, wait a minute and click Calculate Signals again."
+                        : "Start api_signals.py on port 5001, or restart api-signals on the cloud server."}
+                    </div>
                   </div>
                 ) : signalsLoading ? (
                   <div className="flex items-center justify-center h-full text-gray-500 dark:text-white text-center p-2">Loading signals…</div>
