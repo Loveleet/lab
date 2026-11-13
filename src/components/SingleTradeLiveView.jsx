@@ -3679,21 +3679,35 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     const symbol = (row?.symbol || signalSymbol || "").toString().trim().toUpperCase();
     const position_side = (row?.positionSide || "BOTH").toString().toUpperCase();
     const stop_price = (row?.stopPrice ?? extraValue ?? stopPrice ?? "").toString().trim();
+    const exchange = String(accountFields.exchange || "").trim().toLowerCase();
+    const client_id = Number(accountFields.client_id) || 0;
     if (!symbol) throw new Error("Symbol not found");
     if (!stop_price) throw new Error("Stop price required");
+    if (exchange === "delta" && client_id <= 0) {
+      throw new Error("Select a Delta client account for this trade (client_id missing).");
+    }
     const url = api("/api/stop-price");
     const res = await apiFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(withAccount({ symbol, position_side, stop_price, password: (password || "").trim() })),
+      body: JSON.stringify(withAccount({
+        symbol,
+        position_side,
+        stop_price,
+        exchange,
+        client_id,
+        password: (password || "").trim(),
+      })),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data?.message || data?.error || "Set stop price failed");
     if (data?.ok === false) throw new Error(data?.message || "Set stop price failed");
     setStopPriceRowRef.current = null;
     setBinanceDataRefreshKey((k) => k + 1);
-    return { successMessage: data?.message || "Stop price set." };
-  }, [signalSymbol, stopPrice]);
+    const venueLabel = exchange === "delta" ? "Delta" : "Binance";
+    const acct = client_id > 0 ? `client ${client_id}` : "House";
+    return { successMessage: data?.message || `Stop price set on ${venueLabel} (${acct}).` };
+  }, [signalSymbol, stopPrice, withAccount, accountFields]);
   const handleAddInvestment = useCallback(async ({ password }) => {
     const row = addInvestmentRowRef.current;
     const symbol = (row?.symbol || signalSymbol || "").toString().trim().toUpperCase();
