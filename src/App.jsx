@@ -1338,7 +1338,7 @@ const getFilteredForTitle = useMemo(() => {
       if (isDirectClosedTrade(trade)) pushTo("Direct_Closed_Stats");
     }
     
-    if (tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade)) {
+    if (isHedgeClosedTrade(trade)) {
       pushTo("Hedge_Closed_Stats");
     }
     
@@ -1631,10 +1631,10 @@ useEffect(() => {
   .reduce((sum, trade) => sum + (parseFloat(trade.pl_after_comm) || 0), 0);
 
   const hedgeClosedPlus = filteredTradeData
-  .filter(trade => tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade) && getTradePl(trade) > 0)
+  .filter(trade => isHedgeClosedTrade(trade) && getTradePl(trade) > 0)
   .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const hedgeClosedMinus = filteredTradeData
-  .filter(trade => tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade))
+  .filter(trade => isHedgeClosedTrade(trade))
   .reduce((sum, trade) => sum + getTradePl(trade), 0);
   const hedgeClosedTotal = hedgeClosedMinus + hedgeClosedPlus;
   const totalClosedTotal = closePlus + hedgeClosedPlus + closeMinus + hedgeClosedMinus;
@@ -1715,9 +1715,9 @@ Direct_Closed_Stats: (
               </span>
               </>),
 Hedge_Closed_Stats: (
-            <span className={!selectedExchanges.binance ? "opacity-40" : ""}>
+            <span>
 
-               <span title="Binance hedge only — Delta has no hedge" className={`relative px-[3px] text-yellow-300 font-semibold font-semibold`} style={{ fontSize: `${26 + (fontSizeLevel - 8) * 5}px` }}>Hedge Closed  &nbsp;</span>
+               <span title="Closed trades in loss (Binance and Delta)" className={`relative px-[3px] text-yellow-300 font-semibold font-semibold`} style={{ fontSize: `${26 + (fontSizeLevel - 8) * 5}px` }}>Hedge Closed  &nbsp;</span>
               <span title="Total Trades Count (Hedge + Direct)" className={`relative px-[3px] text-yellow-300 font-semibold opacity-70 font-semibold`} style={{ fontSize: `${24 + (fontSizeLevel - 8) * 5}px` }}>👇&nbsp;</span>
             &nbsp;
              
@@ -1725,7 +1725,7 @@ Hedge_Closed_Stats: (
                 className={`relative px-[3px] text-yellow-300 font-semibold  font-semibold`} style={{ fontSize: `${30 + (fontSizeLevel - 8) * 5}px` }}
                 title="Closed Hedge Count"
               >
-                {filteredTradeData.filter(trade => tradeVenue(trade) === "binance" && isHedgeClosedTrade(trade)).length}
+                {filteredTradeData.filter(trade => isHedgeClosedTrade(trade)).length}
               </span>
              
               <div style={{ height: '14px' }} />

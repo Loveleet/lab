@@ -41,7 +41,6 @@ export function isRunningLikeTrade(trade) {
   );
 }
 
-/** Closed hedge: any closed trade closed in minus (loss). */
 export function getTradePl(trade) {
   const pl = parseFloat(trade?.pl_after_comm ?? trade?.Pl_after_comm);
   return Number.isNaN(pl) ? 0 : pl;
@@ -226,6 +225,7 @@ export function overlayPositionKey(trade, symbol) {
   return `${tradeClientId(trade)}|${tradeVenue(trade)}|${symbol || ""}`;
 }
 
+/** Closed in loss (all venues): closed type and P/L below zero. */
 export function isHedgeClosedTrade(trade) {
   return isClosedTradeType(trade) && getTradePl(trade) < 0;
 }
