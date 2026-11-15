@@ -285,7 +285,7 @@ const TableView =  ({ title, tradeData, clientData, activeSubReport, setActiveSu
   const [filteredRawTrades, setFilteredRawTrades] = useState([]);
   const [exchangeDataBySymbol, setExchangeDataBySymbol] = useState({});
   const [binancePositionsLoading, setBinancePositionsLoading] = useState(false);
-  const lastBinanceNonceRef = useRef(0);
+  const lastExchangeFetchNonceRef = useRef(0);
   const [expandedExchangeRow, setExpandedExchangeRow] = useState(null);
   const [sortConfig, setSortConfig] = React.useState({ key: null, direction: 'asc' });
   const [selectedRow, setSelectedRow] = useState(null);
@@ -801,18 +801,13 @@ useEffect(() => {
   setFilteredRawTrades(filteredTrades);
 }, [title, tradeData, activeSubReport, clientData, searchInput]);
 
-  // Fetch live exchange positions for visible exchange-sync rows (and when Refresh Binance bumps nonce)
+  // Fetch live exchange positions only after "Refresh exchanges" (nonce bump), not on main ⟲ refresh.
   useEffect(() => {
     const nonce = binanceRefreshNonce || 0;
-    const tradeSig = filteredRawTrades
-      .filter(isExchangeLiveTrade)
-      .map((t) => overlayPositionKey(t, getRobustSymbol(t.pair || t.symbol)))
-      .join("|");
-    const runKey = `${nonce}:${tradeSig}`;
-    if (runKey === lastBinanceNonceRef.current) {
+    if (!nonce || nonce === lastExchangeFetchNonceRef.current) {
       return;
     }
-    lastBinanceNonceRef.current = runKey;
+    lastExchangeFetchNonceRef.current = nonce;
     const seen = new Set();
     const jobs = [];
     for (const t of filteredRawTrades.filter(isExchangeLiveTrade)) {

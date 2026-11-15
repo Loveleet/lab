@@ -791,19 +791,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
           );
           setDemoDataHint(tradeResult.demoHint || null);
           if (tradeResult.stats) setClosedCacheStats(tradeResult.stats);
-          // Paint trades, then overlay exchange PL/investment as soon as positions load
           setTradeData(trades);
-          void tradesWithLiveExchangeOverlay(trades).then((withLive) => {
-            setTradeData((prev) => {
-              const closed = (prev || []).filter(isClosedTrade);
-              const runningLive = withLive.filter(isRunningTrade);
-              const runningPrev = (prev || []).filter(isRunningTrade);
-              return mergeRunningAndClosed(
-                runningLive.length ? runningLive : runningPrev,
-                closed.length ? closed : withLive.filter(isClosedTrade)
-              );
-            });
-          });
         }
       } catch (tradeErr) {
         console.error("[tradesCache] Smart fetch failed, trying legacy /api/trades:", tradeErr);
@@ -877,15 +865,8 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       const machinesFromTrades = deriveMachinesFromTrades(trades, toMachineKey);
       const signalKeys = deriveSignalsFromTrades(trades);
 
-      let tradesForUi = trades;
-      try {
-        tradesForUi = await tradesWithLiveExchangeOverlay(trades);
-      } catch (overlayErr) {
-        console.warn("[trades] exchange overlay skipped:", overlayErr);
-      }
-
       setMachines(machinesFromTrades);
-      setTradeData(tradesForUi);
+      setTradeData(trades);
       setLogData(logs);
       setClientData(machinesFromTrades);
 
