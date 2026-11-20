@@ -51,7 +51,9 @@ const TradeFilterPanel = ({
   machines,
   setDateKey,
   assignedCount,
-  dateKey
+  dateKey,
+  onClearOrphanOrders,
+  clearOrphanOrdersBusy,
 }) => {
   const dayPickerRef = useRef(null);
   const toMachineKey = (id) => (id === null || id === undefined ? "" : String(id));
@@ -247,6 +249,17 @@ const TradeFilterPanel = ({
             >
               Uncheck
             </button>
+            {typeof onClearOrphanOrders === "function" && (
+              <button
+                type="button"
+                disabled={Boolean(clearOrphanOrdersBusy)}
+                title="Cancel SL/TP only on pairs with no open position (selected exchanges & clients)"
+                className="text-xs font-semibold px-2 py-1 rounded bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-60"
+                onClick={onClearOrphanOrders}
+              >
+                {clearOrphanOrdersBusy ? "Clearing…" : "Clear Order"}
+              </button>
+            )}
           </div>
         )}
         <div className="flex flex-wrap gap-2">

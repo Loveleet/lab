@@ -2249,6 +2249,7 @@ app.post("/api/stop-price", (req, res) => proxyActionToPython(req, res, 120000))
 app.post("/api/end-trade", (req, res) => proxyActionToPython(req, res, 120000));
 app.post("/api/add-investment", (req, res) => proxyActionToPython(req, res, 120000));
 app.post("/api/close-order", (req, res) => proxyActionToPython(req, res, 60000));
+app.post("/api/clear-orphan-orders", (req, res) => proxyActionToPython(req, res, 180000));
 app.get("/api/close-order", proxyGetToPython);
 app.get("/api/quantity-preview", proxyGetToPython);
 app.post("/api/quantity-preview", (req, res) => proxyPostToPython(req, res, 20000));

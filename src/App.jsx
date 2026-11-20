@@ -347,6 +347,7 @@ const App = () => {
   const [binanceRefreshNonce, setBinanceRefreshNonce] = useState(0);
   const [binanceRefreshing, setBinanceRefreshing] = useState(false);
   const [exchangeSyncNotice, setExchangeSyncNotice] = useState("");
+  const [clearOrphanOrdersBusy, setClearOrphanOrdersBusy] = useState(false);
   const [closedCacheProgress, setClosedCacheProgress] = useState(null);
   const [closedCacheStats, setClosedCacheStats] = useState(null);
   const forceFullClosedRef = useRef(false);
@@ -969,6 +970,47 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
       setBinanceRefreshing(false);
     }
   }, [binanceRefreshing, refreshAllData]);
+
+  const handleClearOrphanOrders = useCallback(() => {
+    const exchanges = Object.entries(selectedExchanges || {})
+      .filter(([, on]) => on)
+      .map(([k]) => k);
+    if (!exchanges.length) {
+      setExchangeSyncNotice("Select at least one exchange (Binance or Delta).");
+      return;
+    }
+    const enabledClients = Object.entries(selectedClients || {})
+      .filter(([, on]) => on !== false)
+      .map(([id]) => id);
+    openToolbarPasswordPrompt(
+      async (password) => {
+        setClearOrphanOrdersBusy(true);
+        setExchangeSyncNotice("");
+        try {
+          const res = await apiFetch("/api/clear-orphan-orders", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              password: (password || "").trim(),
+              exchanges,
+              client_ids: enabledClients.length ? enabledClients : undefined,
+            }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok || data?.ok === false) {
+            throw new Error(data?.message || data?.error || res.statusText || "Clear order failed");
+          }
+          const extra = Array.isArray(data.errors) && data.errors.length ? ` (${data.errors.length} warnings)` : "";
+          setExchangeSyncNotice(`${data.message || "Orphan orders cleared"}${extra}`);
+          setBinanceRefreshNonce((n) => n + 1);
+        } finally {
+          setClearOrphanOrdersBusy(false);
+        }
+      },
+      "Clear orphan orders",
+      "Cancel SL/TP on pairs that have resting orders but no open position, for the selected exchange(s) and client(s). Running positions are not touched."
+    );
+  }, [selectedExchanges, selectedClients, openToolbarPasswordPrompt]);
 
   const toggleAutoExecuteBuy = useCallback(async (password = "") => {
     if (!autoExecuteMode) return;
@@ -3047,6 +3089,8 @@ useEffect(() => {
                       dateKey={dateKey}
                       setDateKey={setDateKey}
                       assignedCount={getFilteredForTitle["Assigned_New"]?.length || 0}
+                      onClearOrphanOrders={handleClearOrphanOrders}
+                      clearOrphanOrdersBusy={clearOrphanOrdersBusy}
                     />
                     </div>
                   )}
