@@ -168,17 +168,72 @@ export function positionUnrealizedPl(p) {
   return positionPl(p);
 }
 
+export function isDeltaPosition(p) {
+  if (!p) return false;
+  const ex = String(p.exchange || "").trim().toLowerCase();
+  return ex === "delta" || p.product_id != null || p.product_symbol != null;
+}
+
+/** Delta: contracts on the book (used for close qty). Binance: token/contracts as returned. */
+export function positionContracts(p) {
+  const n = Math.abs(parseFloat(p?.positionAmt ?? p?.size ?? 0));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Token-equivalent size for P/L (Binance qty, or Delta contracts × contract_value).
+ * Prefer notional ÷ mark when Delta notional is present (matches unrealizedPnl from the exchange).
+ */
+export function positionEffectiveQty(p) {
+  if (!p) return 0;
+  const amt = positionContracts(p);
+  if (!(amt > 0)) return 0;
+  if (!isDeltaPosition(p)) return amt;
+  const notional = parseFloat(p.notional);
+  const mark = parseFloat(p.markPrice ?? p.mark_price);
+  if (Number.isFinite(notional) && notional > 0 && Number.isFinite(mark) && mark > 0) {
+    return notional / mark;
+  }
+  const cv = parseFloat(p.contract_value ?? p.contractValue);
+  if (Number.isFinite(cv) && cv > 0) return amt * cv;
+  const entry = parseFloat(p.entryPrice ?? p.entry_price);
+  const upl = parseFloat(p.unRealizedProfit ?? p.unrealized_pnl);
+  if (Number.isFinite(entry) && Number.isFinite(mark) && Number.isFinite(upl)) {
+    const diff = mark - entry;
+    if (Math.abs(diff) > 1e-12) {
+      const implied = Math.abs(upl / diff);
+      if (Number.isFinite(implied) && implied > amt * 1.5) return implied;
+    }
+  }
+  return amt;
+}
+
+/** Estimated net P/L at exit price (front-end; uses venue-typical fee rate). */
+export function estimatePlAtPrice(p, targetPrice, exchangeHint) {
+  const ep = parseFloat(p?.entryPrice ?? p?.entry_price);
+  const tp = parseFloat(targetPrice);
+  const qty = positionEffectiveQty(p);
+  if (!(Number.isFinite(ep) && ep > 0 && Number.isFinite(tp) && tp > 0 && qty > 0)) return null;
+  const side = String(p?.positionSide || "").toUpperCase();
+  const isLong = side !== "SHORT";
+  const gross = isLong ? (tp - ep) * qty : (ep - tp) * qty;
+  const ex = String(exchangeHint || p?.exchange || "binance").toLowerCase();
+  const feeRate = ex === "delta" ? 0.0005 : 0.0015;
+  const commission = (ep * qty + tp * qty) * feeRate;
+  return gross - commission;
+}
+
 /** Approximate position size in USDT (notional or qty × entry/mark). */
 export function positionNotionalUsd(p) {
   if (!p) return null;
   const notional = parseFloat(p.notional);
   if (Number.isFinite(notional) && notional > 0) return notional;
-  const amt = Math.abs(parseFloat(p.positionAmt ?? p.size ?? 0));
-  if (!Number.isFinite(amt) || amt <= 0) return null;
+  const qty = positionEffectiveQty(p);
+  if (!(qty > 0)) return null;
   const entry = parseFloat(p.entryPrice ?? p.entry_price);
-  if (Number.isFinite(entry) && entry > 0) return entry * amt;
+  if (Number.isFinite(entry) && entry > 0) return entry * qty;
   const mark = parseFloat(p.markPrice ?? p.mark_price);
-  if (Number.isFinite(mark) && mark > 0) return mark * amt;
+  if (Number.isFinite(mark) && mark > 0) return mark * qty;
   return null;
 }
 

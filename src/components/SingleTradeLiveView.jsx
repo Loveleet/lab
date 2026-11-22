@@ -11,6 +11,10 @@ import {
   matchExchangePosition,
   positionNotionalUsd,
   positionUnrealizedPl,
+  positionEffectiveQty,
+  positionContracts,
+  estimatePlAtPrice,
+  isDeltaPosition,
 } from "../tradeFilterUtils";
 import EmaTrendGrid from "./EmaTrendGrid";
 
@@ -3245,8 +3249,13 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     if (Number.isFinite(entry) && entry > 0) out.Entry_Price = entry.toFixed(6);
     const upl = positionUnrealizedPl(pos);
     if (upl != null) out.Unrealized_Profit = upl.toFixed(2);
+    const action = String(rawTrade?.action || "").toUpperCase();
+    const rulePl = parseFloat(tradeMgmtRulesByAction?.[action]?.pl_target_price ?? 0);
+    if (Number.isFinite(rulePl) && rulePl > 0) {
+      out.PL_Target_Price = rulePl.toFixed(6);
+    }
     return out;
-  }, [row, rawTrade, exchangePositionData]);
+  }, [row, rawTrade, exchangePositionData, tradeMgmtRulesByAction]);
 
   const allKeys = Object.keys(displayRow).filter(
     (k) => k !== "📋" && displayRow[k] != null && String(displayRow[k]).trim() !== ""
@@ -4006,7 +4015,6 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
               </button>
               <button
                 type="button"
-                disabled={hasBinancePositions}
                 onClick={() => {
                   const sym = (signalSymbol || (rawTrade?.pair || stripHtml(row.Pair) || "").replace("/", "").trim()).toString().toUpperCase();
                   const backInvestNum = rawTrade?.investment != null && rawTrade?.investment !== ""
@@ -4030,11 +4038,15 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                     positionSide: tradeExecuteSide(rawTrade, row),
                   });
                 }}
-                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl-xl bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 hover:from-emerald-600 hover:via-green-600 hover:to-teal-600 text-white text-lg font-bold shadow-lg shadow-emerald-500/40 hover:shadow-emerald-500/50 hover:scale-105 active:scale-100 transition-all min-h-[48px] border-2 border-emerald-400/50 disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100 disabled:cursor-not-allowed"
-                title={hasBinancePositions ? "Disabled: position already exists in Binance Data" : "Execute Trade in Exchange"}
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl-xl bg-gradient-to-r from-emerald-500 via-green-500 to-teal-500 hover:from-emerald-600 hover:via-green-600 hover:to-teal-600 text-white text-lg font-bold shadow-lg shadow-emerald-500/40 hover:shadow-emerald-500/50 hover:scale-105 active:scale-100 transition-all min-h-[48px] border-2 border-emerald-400/50"
+                title={
+                  hasBinancePositions
+                    ? "Execute or add size — exchange already shows an open position for this pair"
+                    : "Execute Trade in Exchange"
+                }
               >
                 <Play size={24} fill="currentColor" />
-                {hasBinancePositions ? "Disabled: position already exists in Binance Data" : "Execute Trade in Exchange"}
+                Execute Trade in Exchange
               </button>
             </div>
           </div>
@@ -4638,7 +4650,9 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                     ? typeof cellVal === "number" && Number.isFinite(cellVal)
                                       ? Number(cellVal).toFixed(4)
                                       : "0"
-                                    : formatVal(key, cellVal);
+                                    : key === "positionAmt" && isDeltaPosition(pos)
+                                      ? `${positionContracts(pos).toFixed(4)} ctr`
+                                      : formatVal(key, cellVal);
                                 return (
                                   <td
                                     key={key}
@@ -4655,7 +4669,16 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                               <td colSpan={keysToRender.length} className="px-2 pt-5 pb-3" bgcolor="#6e5324">
                                 <div className="flex flex-wrap items-center gap-4 text-sm">
                                   {/* 1) PL @ price calculator */}
-                                  <span className="font-semibold text-gray-700 dark:text-gray-200">PL @ price:</span>
+                                  <span
+                                    className="font-semibold text-gray-700 dark:text-gray-200"
+                                    title={
+                                      isDeltaPosition(pos)
+                                        ? `Est. net P/L at exit (Delta fee ~0.05%). Size ≈ ${positionEffectiveQty(pos).toFixed(2)} units from notional÷mark; position is ${positionContracts(pos).toFixed(4)} contracts.`
+                                        : "Est. net P/L at exit (incl. ~0.15% round-trip fee)."
+                                    }
+                                  >
+                                    PL @ price:
+                                  </span>
                                   <input
                                     type="number"
                                     inputMode="decimal"
@@ -4664,21 +4687,11 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                     onChange={(e) => {
                                       const price = e.target.value;
                                       setPlCalcPriceByRow((prev) => ({ ...prev, [idx]: price }));
-                                      const ep = pos.entryPrice != null ? parseFloat(pos.entryPrice) : NaN;
-                                      const amt = pos.positionAmt != null ? parseFloat(pos.positionAmt) : NaN;
-                                      const qty = Number.isFinite(amt) ? Math.abs(amt) : 0;
-                                      const tp = price !== "" ? parseFloat(price) : NaN;
-                                      if (!Number.isFinite(ep) || !Number.isFinite(tp) || !Number.isFinite(qty) || qty <= 0) {
-                                        setPlCalcNetByRow((prev) => ({ ...prev, [idx]: null }));
-                                        return;
-                                      }
-                                      const side = (pos.positionSide || "LONG").toString().toUpperCase();
-                                      const isLong = side === "LONG";
-                                      const gross = isLong ? (tp - ep) * qty : (ep - tp) * qty;
-                                      const entryNotional = ep * qty;
-                                      const exitNotional = tp * qty;
-                                      const commission = (entryNotional + exitNotional) * 0.0015; // 0.15%
-                                      const net = gross - commission;
+                                      const net = estimatePlAtPrice(
+                                        pos,
+                                        price,
+                                        accountFields.exchange || pos.exchange
+                                      );
                                       setPlCalcNetByRow((prev) => ({ ...prev, [idx]: net }));
                                     }}
                                     placeholder="Target price"
@@ -4746,15 +4759,11 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                     inputMode="decimal"
                                     step="any"
                                     min={0}
-                                    max={(() => {
-                                      const amt = pos.positionAmt != null ? parseFloat(pos.positionAmt) : NaN;
-                                      return Number.isFinite(amt) ? Math.abs(amt) : 0;
-                                    })()}
+                                    max={positionContracts(pos)}
                                     value={partialStopQtyByRow[idx] ?? ""}
                                     onChange={(e) => {
                                       const raw = e.target.value;
-                                      const amt = pos.positionAmt != null ? parseFloat(pos.positionAmt) : NaN;
-                                      const maxQty = Number.isFinite(amt) ? Math.abs(amt) : 0;
+                                      const maxQty = positionContracts(pos);
                                       if (raw === "" || raw === null) {
                                         setPartialStopQtyByRow((prev) => ({ ...prev, [idx]: "" }));
                                         return;
@@ -4767,10 +4776,10 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                       const clamped = maxQty > 0 && num > maxQty ? maxQty : num;
                                       setPartialStopQtyByRow((prev) => ({ ...prev, [idx]: clamped === num ? raw : String(clamped) }));
                                     }}
-                                    placeholder={`Max ${(pos.positionAmt != null && Number.isFinite(parseFloat(pos.positionAmt)) ? Math.abs(parseFloat(pos.positionAmt)) : 0).toFixed(4)}`}
+                                    placeholder={`Max ${positionContracts(pos).toFixed(4)}${isDeltaPosition(pos) ? " ctr" : ""}`}
                                     autoComplete="off"
                                     className="border border-gray-400 dark:border-gray-600 rounded-2xl px-2 py-1 bg-white dark:bg-[#222] w-36 text-base"
-                                    title={`Quantity to close (max ${(pos.positionAmt != null && Number.isFinite(parseFloat(pos.positionAmt)) ? Math.abs(parseFloat(pos.positionAmt)) : 0).toFixed(4)})`}
+                                    title={`Quantity to close (max ${positionContracts(pos).toFixed(4)}${isDeltaPosition(pos) ? " contracts" : ""})`}
                                   />
                                   <button
                                     type="button"
