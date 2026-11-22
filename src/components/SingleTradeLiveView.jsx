@@ -123,6 +123,7 @@ const LOCAL_RULE_BOOKS_KEY = "singleTradeLiveView_localRuleBooks";
 const ACTIVE_LOCAL_RULE_BOOK_ID_KEY = "singleTradeLiveView_activeLocalRuleBookId";
 const BINANCE_COLUMNS_ORDER_KEY = "singleTradeLiveView_binanceColumnsOrder";
 const BINANCE_COLUMNS_VISIBILITY_KEY = "singleTradeLiveView_binanceColumnsVisibility";
+const BINANCE_PINNED_COLUMNS = ["__actions__", "stopPrice", "profitTarget"];
 const SECTION_IDS = ["information", "binanceData", "chart"];
 const SECTION_LABELS = { information: "Information", binanceData: "Binance Data", chart: "Chart" };
 
@@ -3023,7 +3024,8 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     (typeof rawTrade.exist_in_exchange === "string" && parseFloat(rawTrade.exist_in_exchange) > 0)
   );
   const [exchangePositionData, setExchangePositionData] = useState(null);
-  const [openOrdersData, setOpenOrdersData] = useState(null); // { orders: [{ symbol, positionSide, type, stopPrice }] }
+  const [openOrdersData, setOpenOrdersData] = useState(null); // { orders: [{ symbol, positionSide, type, stopPrice, takeProfitPrice }] }
+  const [tradeMgmtRulesByAction, setTradeMgmtRulesByAction] = useState(null); // { BUY: { pl_target_price, ... }, SELL: ... }
   const [futuresBalance, setFuturesBalance] = useState(null); // number = USDT available, null = loading/error
   const [futuresBalanceMeta, setFuturesBalanceMeta] = useState(null);
   const [binanceDataRefreshKey, setBinanceDataRefreshKey] = useState(1);
@@ -3056,14 +3058,18 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   useEffect(() => {
     if (exchangePositionData?.positions?.length) {
       const keys = Object.keys(exchangePositionData.positions[0]);
-      const allKeys = ["__actions__", "stopPrice", ...keys];
+      const allKeys = [...BINANCE_PINNED_COLUMNS, ...keys];
       setBinanceColumns((prev) => {
         if (Array.isArray(prev) && prev.length > 0) {
-          const ordered = prev.filter((c) => c === "__actions__" || c === "stopPrice" || keys.includes(c));
+          const ordered = prev.filter((c) => BINANCE_PINNED_COLUMNS.includes(c) || keys.includes(c));
           const added = allKeys.filter((k) => !ordered.includes(k));
-          return ["__actions__", "stopPrice", ...ordered.filter((x) => x !== "__actions__" && x !== "stopPrice"), ...added];
+          return [
+            ...BINANCE_PINNED_COLUMNS,
+            ...ordered.filter((x) => !BINANCE_PINNED_COLUMNS.includes(x)),
+            ...added,
+          ];
         }
-        return ["__actions__", "stopPrice", ...keys];
+        return [...BINANCE_PINNED_COLUMNS, ...keys];
       });
       setBinanceColumnVisibility((prev) => {
         const next = { ...prev };
@@ -3132,6 +3138,41 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       cancelled = true;
     };
   }, [signalSymbol, accountQsJoin, accountFields.client_id, accountFields.exchange, isExistInExchange, binanceDataRefreshKey]);
+
+  // Saved profit target / partial rules from trade_management_rules (DB)
+  useEffect(() => {
+    if (!signalSymbol) {
+      setTradeMgmtRulesByAction(null);
+      return;
+    }
+    if (binanceDataRefreshKey === 0) return;
+    let cancelled = false;
+    const pair = String(signalSymbol).trim().toUpperCase().replace(/[-_/]/g, "");
+    const fetchRules = async () => {
+      try {
+        const actions = ["BUY", "SELL"];
+        const entries = await Promise.all(
+          actions.map(async (action) => {
+            const res = await fetchPythonApi(
+              `/api/trade-management-rule?pair=${encodeURIComponent(pair)}&action=${encodeURIComponent(action)}`
+            );
+            const data = await res.json().catch(() => ({}));
+            if (data?.ok && data.rules) return [action, data.rules];
+            return [action, null];
+          })
+        );
+        if (!cancelled) {
+          setTradeMgmtRulesByAction(Object.fromEntries(entries));
+        }
+      } catch {
+        if (!cancelled) setTradeMgmtRulesByAction(null);
+      }
+    };
+    fetchRules();
+    return () => {
+      cancelled = true;
+    };
+  }, [signalSymbol, binanceDataRefreshKey]);
 
   // Fetch futures balance on first open, then only when user clicks Refresh Binance
   useEffect(() => {
@@ -3355,36 +3396,52 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
   // Binance table: text zoom vs button zoom (separate adjusters)
   const hasBinancePositions = !!exchangePositionData?.positions?.length;
   const binanceDefaultColumns = hasBinancePositions
-    ? ["__actions__", "stopPrice", ...Object.keys(exchangePositionData.positions[0])]
+    ? [...BINANCE_PINNED_COLUMNS, ...Object.keys(exchangePositionData.positions[0])]
     : [];
-  // Map (symbol_positionSide) -> stopPrice from open orders (show 0 if no stop)
-  const openOrdersStopPriceMap = useMemo(() => {
+  const canonOrderSymbol = (s) => {
+    const u = String(s || "").toUpperCase().replace(/[-_/]/g, "");
+    if (u.endsWith("USDT")) return u;
+    if (u.endsWith("USD")) return `${u}T`;
+    return u;
+  };
+  const mergeOrderPriceMap = (orders, field, legacyTypeRe) => {
     const map = new Map();
-    const canon = (s) => {
-      const u = String(s || "").toUpperCase().replace(/[-_/]/g, "");
-      if (u.endsWith("USDT")) return u;
-      if (u.endsWith("USD")) return `${u}T`;
-      return u;
-    };
-    const orders = openOrdersData?.orders || [];
-    for (const o of orders) {
-      const sym = canon(o.symbol);
+    for (const o of orders || []) {
+      const sym = canonOrderSymbol(o.symbol);
       const ps = (o.positionSide || "BOTH").toString().toUpperCase();
-      const sp = o.stopPrice != null && o.stopPrice !== "" ? parseFloat(o.stopPrice) : 0;
-      const val = Number.isFinite(sp) ? sp : 0;
+      let val = o[field] != null && o[field] !== "" ? parseFloat(o[field]) : 0;
+      if (!(Number.isFinite(val) && val > 0) && legacyTypeRe?.test(String(o.type || ""))) {
+        const leg = o.stopPrice != null && o.stopPrice !== "" ? parseFloat(o.stopPrice) : 0;
+        val = Number.isFinite(leg) ? leg : 0;
+      }
+      if (!Number.isFinite(val) || val <= 0) continue;
       for (const side of [ps, "BOTH"]) {
         const key = `${sym}_${side}`;
         if (!map.has(key) || val > 0) map.set(key, val);
       }
     }
     return map;
-  }, [openOrdersData]);
+  };
+  const openOrdersStopPriceMap = useMemo(
+    () => mergeOrderPriceMap(openOrdersData?.orders, "stopPrice", /STOP|TRAILING/i),
+    [openOrdersData]
+  );
+  const openOrdersTakeProfitMap = useMemo(
+    () => mergeOrderPriceMap(openOrdersData?.orders, "takeProfitPrice", /TAKE_PROFIT/i),
+    [openOrdersData]
+  );
   const binanceEffectiveColumns = (binanceColumns.length ? binanceColumns : binanceDefaultColumns);
   const binanceVisibleKeys = binanceEffectiveColumns.filter(
     (key) => binanceColumnVisibility[key] !== false
   );
   const binanceVisibleLabels = binanceVisibleKeys.map((key) =>
-    key === "__actions__" ? "Actions" : key === "stopPrice" ? "Stop Price" : key.replace(/([A-Z])/g, " $1").trim()
+    key === "__actions__"
+      ? "Actions"
+      : key === "stopPrice"
+        ? "Stop Price"
+        : key === "profitTarget"
+          ? "Profit Target"
+          : key.replace(/([A-Z])/g, " $1").trim()
   );
   const binanceFontSizePx = (zoomBackLeft / 100) * 16;
   const binanceButtonFontSizePx = Math.max(10, Math.round((zoomBinanceButtons / 100) * 13));
@@ -3832,6 +3889,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       if (data?.ok === false) throw new Error(data?.message || "Failed to save rule");
       setRuleDialog((prev) => (prev ? { ...prev, step: "success" } : null));
       setRuleDialogPassword("");
+      setBinanceDataRefreshKey((k) => k + 1);
     } catch (e) {
       setRuleDialogError(e?.message || "Failed");
     } finally {
@@ -4554,18 +4612,33 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                 const pl = parseFloat(pos.unRealizedProfit || 0);
                                 const plClass = key === "unRealizedProfit" ? (pl < 0 ? "text-red-600 font-medium" : "text-green-600 font-medium") : "";
                                 const isStopPriceCol = key === "stopPrice";
-                                const posSymKey = (() => {
-                                  const u = String(pos.symbol || "").toUpperCase().replace(/[-_/]/g, "");
-                                  return u.endsWith("USDT") ? u : (u.endsWith("USD") ? `${u}T` : u);
-                                })();
+                                const isProfitTargetCol = key === "profitTarget";
+                                const posSymKey = canonOrderSymbol(pos.symbol);
+                                const psKey = (pos.positionSide || "BOTH").toString().toUpperCase();
+                                const lookupOrderPx = (orderMap) =>
+                                  orderMap.get(`${posSymKey}_${psKey}`) ?? orderMap.get(`${posSymKey}_BOTH`) ?? 0;
+                                const tradeAction = psKey === "SHORT" ? "SELL" : "BUY";
+                                const rulePlTarget = parseFloat(
+                                  tradeMgmtRulesByAction?.[tradeAction]?.pl_target_price ?? 0
+                                );
+                                const exchangeTp = lookupOrderPx(openOrdersTakeProfitMap);
+                                const profitTargetPx =
+                                  Number.isFinite(exchangeTp) && exchangeTp > 0
+                                    ? exchangeTp
+                                    : Number.isFinite(rulePlTarget) && rulePlTarget > 0
+                                      ? rulePlTarget
+                                      : 0;
                                 const cellVal = isStopPriceCol
-                                  ? (openOrdersStopPriceMap.get(`${posSymKey}_${(pos.positionSide || "BOTH").toString().toUpperCase()}`)
-                                    ?? openOrdersStopPriceMap.get(`${posSymKey}_BOTH`)
-                                    ?? 0)
-                                  : pos[key];
-                                const displayVal = isStopPriceCol
-                                  ? (typeof cellVal === "number" && Number.isFinite(cellVal) ? Number(cellVal).toFixed(4) : "0")
-                                  : formatVal(key, cellVal);
+                                  ? lookupOrderPx(openOrdersStopPriceMap)
+                                  : isProfitTargetCol
+                                    ? profitTargetPx
+                                    : pos[key];
+                                const displayVal =
+                                  isStopPriceCol || isProfitTargetCol
+                                    ? typeof cellVal === "number" && Number.isFinite(cellVal)
+                                      ? Number(cellVal).toFixed(4)
+                                      : "0"
+                                    : formatVal(key, cellVal);
                                 return (
                                   <td
                                     key={key}

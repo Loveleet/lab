@@ -230,7 +230,8 @@ export async function fetchPythonApi(path, opts = {}) {
     try {
       const direct = await apiSignalsFetch(path, opts);
       if (direct.ok) return direct;
-      if (direct.status > 0 && direct.status !== 502 && direct.status !== 503) return direct;
+      const retryViaNode = direct.status === 502 || direct.status === 503 || direct.status === 404 || direct.status === 405;
+      if (direct.status > 0 && !retryViaNode) return direct;
     } catch (_) {
       // local Python not running — fall through to Node proxy
     }

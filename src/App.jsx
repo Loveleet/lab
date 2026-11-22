@@ -1101,8 +1101,38 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
     }
     const enabledClients = Object.entries(selectedClients || {})
       .filter(([, on]) => on !== false)
-      .map(([id]) => id);
-    openToolbarPasswordPrompt(
+      .map(([id]) => String(id));
+    const run = async () => {
+      const exchangeSet = new Set(exchanges.map((x) => String(x).toLowerCase()));
+      let clientIdsForApi = enabledClients.length ? enabledClients : undefined;
+      try {
+        const clientsRes = await apiFetch("/api/clients");
+        const clientsPayload = clientsRes.ok ? await clientsRes.json().catch(() => ({})) : {};
+        const roster = Array.isArray(clientsPayload?.clients) ? clientsPayload.clients : [];
+        if (roster.length) {
+          const allow = new Set(clientIdsForApi?.length ? clientIdsForApi : roster.map((c) => String(c.id)));
+          const eligible = roster.filter((c) => {
+            if (!allow.has(String(c.id))) return false;
+            const venues = new Set(
+              (c.accounts || [])
+                .map((a) => String(a?.exchange || a?.venue || "").toLowerCase())
+                .filter(Boolean)
+            );
+            return [...exchangeSet].some((ex) => venues.has(ex));
+          });
+          if (clientIdsForApi?.length && eligible.length === 0) {
+            const exLabel = [...exchangeSet].join(" / ");
+            setExchangeSyncNotice(
+              `No checked client has ${exLabel} keys. Loveleet Koti is Binance-only; for Delta stops enable LAB Main under Client (or Client → All).`
+            );
+            return;
+          }
+          if (eligible.length) clientIdsForApi = eligible.map((c) => String(c.id));
+        }
+      } catch (_) {
+        /* proceed with raw client_ids */
+      }
+      openToolbarPasswordPrompt(
       async (password) => {
         setClearOrphanOrdersBusy(true);
         setExchangeSyncNotice("");
@@ -1113,7 +1143,7 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
             body: JSON.stringify({
               password: (password || "").trim(),
               exchanges,
-              client_ids: enabledClients.length ? enabledClients : undefined,
+              client_ids: clientIdsForApi,
             }),
           });
           const data = await res.json().catch(() => ({}));
@@ -1128,8 +1158,10 @@ const [selectedIntervals, setSelectedIntervals] = useState(() => {
         }
       },
       "Clear orphan orders",
-      "Cancel SL/TP on pairs that have resting orders but no open position, for the selected exchange(s) and client(s). Running positions are not touched."
+      "Cancel stop and take-profit orders on pairs with no open position, for the selected exchange(s) and client(s). Running positions are not touched."
     );
+    };
+    void run();
   }, [selectedExchanges, selectedClients, openToolbarPasswordPrompt]);
 
   const closeToolbarPasswordPrompt = useCallback(() => {

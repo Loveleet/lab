@@ -27,15 +27,16 @@ async function resolveProxyTarget(explicit) {
     console.log(`[vite] API proxy: LAN ${LAN_API}`)
     return LAN_API
   }
-  if (await probeHealth(TAILSCALE_API, 4000)) {
-    console.log(`[vite] API proxy: Tailscale ${TAILSCALE_API}`)
-    return TAILSCALE_API
-  }
+  // Production trading (incl. Delta clients) lives on cloud — prefer it over SSD/Tailscale.
   if (await probeHealth(CLOUD_API, 4000)) {
     console.log(`[vite] API proxy: cloud ${CLOUD_API}`)
     return CLOUD_API
   }
-  console.log(`[vite] API proxy: fallback ${LOCAL_API} (LAN, Tailscale, and cloud not reachable)`)
+  if (await probeHealth(TAILSCALE_API, 4000)) {
+    console.log(`[vite] API proxy: Tailscale ${TAILSCALE_API}`)
+    return TAILSCALE_API
+  }
+  console.log(`[vite] API proxy: fallback ${LOCAL_API} (LAN, cloud, and Tailscale not reachable)`)
   return LOCAL_API
 }
 

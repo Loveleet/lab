@@ -253,7 +253,7 @@ const TradeFilterPanel = ({
               <button
                 type="button"
                 disabled={Boolean(clearOrphanOrdersBusy)}
-                title="Cancel SL/TP only on pairs with no open position (selected exchanges & clients)"
+                title="Cancel stop & take-profit orders on pairs with no open position (Binance + Delta, selected clients)"
                 className="text-xs font-semibold px-2 py-1 rounded bg-slate-600 hover:bg-slate-700 text-white disabled:opacity-60"
                 onClick={onClearOrphanOrders}
               >

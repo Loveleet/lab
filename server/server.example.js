@@ -2195,6 +2195,7 @@ async function proxyActionToPython(req, res, timeoutMs = 120000) {
 app.get("/api/open-position", proxyGetToPython);
 app.get("/api/open-positions", proxyGetToPython);
 app.get("/api/open-orders", proxyGetToPython);
+app.get("/api/trade-management-rule", proxyGetToPython);
 app.get("/api/futures-balance", proxyGetToPython);
 app.get("/api/income-history", (req, res) => {
   const sync = String(req.query.sync || "").toLowerCase();
