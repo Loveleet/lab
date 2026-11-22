@@ -3863,11 +3863,25 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return { successMessage: data.message || `Closed ${qty} ${positionSide} successfully.` };
   }, [signalSymbol, rawTrade?.pair, row.Pair]);
 
+  const resolveTradeClientId = useCallback(() => {
+    const fromDialog = Number(ruleDialog?.clientId);
+    const fromAccount = Number(accountFields.client_id);
+    const fromPosition = Number(exchangePositionData?.client_id);
+    const fromTrade = tradeClientId(rawTrade);
+    const cid = [fromDialog, fromAccount, fromPosition, fromTrade].find((n) => Number.isFinite(n) && n > 0);
+    return cid || 0;
+  }, [ruleDialog?.clientId, accountFields.client_id, exchangePositionData?.client_id, rawTrade]);
+
   const handleTradeManagementRuleSubmit = useCallback(async () => {
     if (!ruleDialog || ruleDialogSubmitting) return;
     const pwd = (ruleDialogPassword || "").trim();
     if (!pwd) {
       setRuleDialogError("Enter password");
+      return;
+    }
+    const clientId = resolveTradeClientId();
+    if (ruleDialog.ruleType === "profit_target" && clientId <= 0) {
+      setRuleDialogError("Client ID missing — pick client 4 (Delta) or client 3 (Binance) on the trade, then try again.");
       return;
     }
     setRuleDialogError("");
@@ -3884,8 +3898,8 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
         exchange: exchange === "delta" ? "delta" : "binance",
         password: pwd,
       };
-      if (accountFields.client_id > 0) {
-        body.client_id = accountFields.client_id;
+      if (clientId > 0) {
+        body.client_id = clientId;
       }
       if (ruleDialog.ruleType === "profit_target") {
         body.pl_target_price = ruleDialog.plTargetPrice != null ? parseFloat(ruleDialog.plTargetPrice) : 0;
@@ -3916,7 +3930,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     } finally {
       setRuleDialogSubmitting(false);
     }
-  }, [ruleDialog, ruleDialogPassword, ruleDialogSubmitting]);
+  }, [ruleDialog, ruleDialogPassword, ruleDialogSubmitting, resolveTradeClientId, accountFields.exchange]);
 
   const isAutoEnabled = rawTrade?.auto === true || rawTrade?.auto === "true" || rawTrade?.auto === 1;
   const handleAutoPilot = useCallback(async ({ password, extraValue }) => {
@@ -4646,12 +4660,15 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                   tradeMgmtRulesByAction?.[tradeAction]?.pl_target_price ?? 0
                                 );
                                 const exchangeTp = lookupOrderPx(openOrdersTakeProfitMap);
-                                const profitTargetPx =
-                                  Number.isFinite(exchangeTp) && exchangeTp > 0
-                                    ? exchangeTp
-                                    : Number.isFinite(rulePlTarget) && rulePlTarget > 0
-                                      ? rulePlTarget
-                                      : 0;
+                                const profitTargetPx = (() => {
+                                  const hasRule = Number.isFinite(rulePlTarget) && rulePlTarget > 0;
+                                  const hasEx = Number.isFinite(exchangeTp) && exchangeTp > 0;
+                                  if (hasRule && hasEx && Math.abs(rulePlTarget - exchangeTp) > 0.00005) {
+                                    return rulePlTarget;
+                                  }
+                                  if (hasEx) return exchangeTp;
+                                  return hasRule ? rulePlTarget : 0;
+                                })();
                                 const cellVal = isStopPriceCol
                                   ? lookupOrderPx(openOrdersStopPriceMap)
                                   : isProfitTargetCol
@@ -4736,13 +4753,19 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                       const exLabel = ex === "delta" ? "Delta" : "Binance";
                                       const targetPrice = plCalcPriceByRow[idx];
                                       const netPl = plCalcNetByRow[idx];
+                                      const cid =
+                                        Number(accountFields.client_id) ||
+                                        Number(exchangePositionData?.client_id) ||
+                                        tradeClientId(rawTrade) ||
+                                        0;
                                       setRuleDialog({
                                         ruleType: "profit_target",
                                         pair: sym,
                                         positionSide: side,
                                         action,
                                         exchange: ex === "delta" ? "delta" : "binance",
-                                        message: `This will set profit target ${targetPrice} for ${sym} (${side}) on ${exLabel} only. Est. P/L: ${Number(netPl).toFixed(4)}. Binance and Delta targets are stored separately.`,
+                                        clientId: cid,
+                                        message: `Set profit target ${targetPrice} on ${exLabel} (client ${cid || "?"}) and place take-profit on the exchange. Est. P/L: ${Number(netPl).toFixed(4)}.`,
                                         plTargetPrice: targetPrice,
                                         step: "message",
                                       });
@@ -4828,6 +4851,11 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                         positionSide: side,
                                         action,
                                         exchange: ex === "delta" ? "delta" : "binance",
+                                        clientId:
+                                          Number(accountFields.client_id) ||
+                                          Number(exchangePositionData?.client_id) ||
+                                          tradeClientId(rawTrade) ||
+                                          0,
                                         message: `This will set partial close at ${price} qty ${validQty ? qty : partialStopQtyByRow[idx]} for ${sym} (${side}) on ${exLabel} only.`,
                                         partialClosePrice: price,
                                         partialQuantityToClose: validQty ? qty : (partialStopQtyByRow[idx] != null ? parseFloat(partialStopQtyByRow[idx]) : 0),
@@ -4873,6 +4901,11 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                         positionSide: side,
                                         action,
                                         exchange: ex === "delta" ? "delta" : "binance",
+                                        clientId:
+                                          Number(accountFields.client_id) ||
+                                          Number(exchangePositionData?.client_id) ||
+                                          tradeClientId(rawTrade) ||
+                                          0,
                                         message: `This will set re-hedge price ${price} for ${sym} (${side}) on ${exLabel} only.`,
                                         reHedgePrice: price,
                                         step: "message",
