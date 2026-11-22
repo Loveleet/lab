@@ -3152,13 +3152,14 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     if (binanceDataRefreshKey === 0) return;
     let cancelled = false;
     const pair = String(signalSymbol).trim().toUpperCase().replace(/[-_/]/g, "");
+    const venue = (accountFields.exchange || "binance").trim().toLowerCase();
     const fetchRules = async () => {
       try {
         const actions = ["BUY", "SELL"];
         const entries = await Promise.all(
           actions.map(async (action) => {
             const res = await fetchPythonApi(
-              `/api/trade-management-rule?pair=${encodeURIComponent(pair)}&action=${encodeURIComponent(action)}`
+              `/api/trade-management-rule?pair=${encodeURIComponent(pair)}&action=${encodeURIComponent(action)}&exchange=${encodeURIComponent(venue)}`
             );
             const data = await res.json().catch(() => ({}));
             if (data?.ok && data.rules) return [action, data.rules];
@@ -3176,7 +3177,7 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     return () => {
       cancelled = true;
     };
-  }, [signalSymbol, binanceDataRefreshKey]);
+  }, [signalSymbol, binanceDataRefreshKey, accountFields.exchange]);
 
   // Fetch futures balance on first open, then only when user clicks Refresh Binance
   useEffect(() => {
@@ -3873,11 +3874,13 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
     setRuleDialogSubmitting(true);
     try {
       const action = ruleDialog.action || (ruleDialog.positionSide === "LONG" ? "BUY" : "SELL");
+      const exchange = (ruleDialog.exchange || accountFields.exchange || "binance").trim().toLowerCase();
       const body = {
         pair: ruleDialog.pair,
         action,
         position_side: ruleDialog.positionSide,
         rule_type: ruleDialog.ruleType,
+        exchange: exchange === "delta" ? "delta" : "binance",
         password: pwd,
       };
       if (ruleDialog.ruleType === "profit_target") {
@@ -4720,6 +4723,8 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                       const sym = (pos.symbol || signalSymbol || "").toString().trim().toUpperCase();
                                       const side = (pos.positionSide || "LONG").toString().toUpperCase();
                                       const action = side === "LONG" ? "BUY" : "SELL";
+                                      const ex = (accountFields.exchange || pos.exchange || "binance").trim().toLowerCase();
+                                      const exLabel = ex === "delta" ? "Delta" : "Binance";
                                       const targetPrice = plCalcPriceByRow[idx];
                                       const netPl = plCalcNetByRow[idx];
                                       setRuleDialog({
@@ -4727,7 +4732,8 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                         pair: sym,
                                         positionSide: side,
                                         action,
-                                        message: `This will set profit target price to ${targetPrice} for ${sym} (${side}). Estimated P/L at this price: ${Number(netPl).toFixed(4)}. If a rule already exists for this pair and side it will be updated, otherwise a new rule will be inserted.`,
+                                        exchange: ex === "delta" ? "delta" : "binance",
+                                        message: `This will set profit target ${targetPrice} for ${sym} (${side}) on ${exLabel} only. Est. P/L: ${Number(netPl).toFixed(4)}. Binance and Delta targets are stored separately.`,
                                         plTargetPrice: targetPrice,
                                         step: "message",
                                       });
@@ -4801,17 +4807,19 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                       const sym = (pos.symbol || signalSymbol || "").toString().trim().toUpperCase();
                                       const side = (pos.positionSide || "LONG").toString().toUpperCase();
                                       const action = side === "LONG" ? "BUY" : "SELL";
+                                      const ex = (accountFields.exchange || pos.exchange || "binance").trim().toLowerCase();
+                                      const exLabel = ex === "delta" ? "Delta" : "Binance";
                                       const price = partialStopPriceByRow[idx];
                                       const qty = parseFloat(partialStopQtyByRow[idx]);
-                                      const amt = pos.positionAmt != null ? parseFloat(pos.positionAmt) : NaN;
-                                      const maxQty = Number.isFinite(amt) ? Math.abs(amt) : 0;
+                                      const maxQty = positionContracts(pos);
                                       const validQty = Number.isFinite(qty) && qty > 0 && qty <= maxQty;
                                       setRuleDialog({
                                         ruleType: "partial_stop",
                                         pair: sym,
                                         positionSide: side,
                                         action,
-                                        message: `This will set partial close at price ${price} with quantity ${validQty ? qty : partialStopQtyByRow[idx]} for ${sym} (${side}). If a rule already exists it will be updated, otherwise a new rule will be inserted.`,
+                                        exchange: ex === "delta" ? "delta" : "binance",
+                                        message: `This will set partial close at ${price} qty ${validQty ? qty : partialStopQtyByRow[idx]} for ${sym} (${side}) on ${exLabel} only.`,
                                         partialClosePrice: price,
                                         partialQuantityToClose: validQty ? qty : (partialStopQtyByRow[idx] != null ? parseFloat(partialStopQtyByRow[idx]) : 0),
                                         step: "message",
@@ -4847,13 +4855,16 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
                                       const sym = (pos.symbol || signalSymbol || "").toString().trim().toUpperCase();
                                       const side = (pos.positionSide || "LONG").toString().toUpperCase();
                                       const action = side === "LONG" ? "BUY" : "SELL";
+                                      const ex = (accountFields.exchange || pos.exchange || "binance").trim().toLowerCase();
+                                      const exLabel = ex === "delta" ? "Delta" : "Binance";
                                       const price = hedgePriceByRow[idx];
                                       setRuleDialog({
                                         ruleType: "hedge_price",
                                         pair: sym,
                                         positionSide: side,
                                         action,
-                                        message: `This will set re-hedge price to ${price} for ${sym} (${side}). If a rule already exists it will be updated, otherwise a new rule will be inserted.`,
+                                        exchange: ex === "delta" ? "delta" : "binance",
+                                        message: `This will set re-hedge price ${price} for ${sym} (${side}) on ${exLabel} only.`,
                                         reHedgePrice: price,
                                         step: "message",
                                       });
