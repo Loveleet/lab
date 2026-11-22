@@ -3877,12 +3877,16 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       const exchange = (ruleDialog.exchange || accountFields.exchange || "binance").trim().toLowerCase();
       const body = {
         pair: ruleDialog.pair,
+        symbol: ruleDialog.pair,
         action,
         position_side: ruleDialog.positionSide,
         rule_type: ruleDialog.ruleType,
         exchange: exchange === "delta" ? "delta" : "binance",
         password: pwd,
       };
+      if (accountFields.client_id > 0) {
+        body.client_id = accountFields.client_id;
+      }
       if (ruleDialog.ruleType === "profit_target") {
         body.pl_target_price = ruleDialog.plTargetPrice != null ? parseFloat(ruleDialog.plTargetPrice) : 0;
       } else if (ruleDialog.ruleType === "partial_stop") {
@@ -3899,7 +3903,12 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || data?.error || "Failed to save rule");
       if (data?.ok === false) throw new Error(data?.message || "Failed to save rule");
-      setRuleDialog((prev) => (prev ? { ...prev, step: "success" } : null));
+      if (ruleDialog.ruleType === "profit_target" && data?.exchange_take_profit?.ok === false) {
+        throw new Error(data?.message || data?.exchange_take_profit?.message || "Rule saved but exchange take-profit failed");
+      }
+      setRuleDialog((prev) =>
+        prev ? { ...prev, step: "success", successMessage: data?.message || "Rule saved" } : null
+      );
       setRuleDialogPassword("");
       setBinanceDataRefreshKey((k) => k + 1);
     } catch (e) {
@@ -5041,7 +5050,9 @@ export default function SingleTradeLiveView({ formattedRow: initialFormattedRow,
             {ruleDialog.step === "success" ? (
               <>
                 <h3 className="font-semibold text-lg mb-2 text-gray-900 dark:text-white">Success</h3>
-                <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium mb-6">Successfully added.</p>
+                <p className="text-sm text-emerald-600 dark:text-emerald-400 font-medium mb-6">
+                  {ruleDialog.successMessage || "Successfully added."}
+                </p>
                 <div className="flex justify-end">
                   <button
                     type="button"
