@@ -482,8 +482,14 @@ const App = () => {
   const [soundSettings, setSoundSettings] = useState(() => {
     try {
       const saved = localStorage.getItem(SOUND_STORAGE_KEY);
+      const merged = (raw) => ({
+        visualNotify: true,
+        browserNotify: false,
+        ...(typeof raw === "object" && raw ? raw : {}),
+        visualNotify: raw?.visualNotify !== false,
+      });
       return saved
-        ? JSON.parse(saved)
+        ? merged(JSON.parse(saved))
         : {
             enabled: false,
             volume: 0.7,
@@ -492,6 +498,8 @@ const App = () => {
             announceSignals: {},
             audioUrls: { BUY: "", SELL: "" },
             newTradeWindowHours: 4,
+            visualNotify: true,
+            browserNotify: false,
           };
     } catch {
       return {
@@ -502,9 +510,13 @@ const App = () => {
         announceSignals: {},
         audioUrls: { BUY: "", SELL: "" },
         newTradeWindowHours: 4,
+        visualNotify: true,
+        browserNotify: false,
       };
     }
   });
+  const [newTradeToasts, setNewTradeToasts] = useState([]);
+  const newTradeToastIdRef = useRef(0);
   useEffect(() => {
     localStorage.setItem(SOUND_STORAGE_KEY, JSON.stringify(soundSettings));
   }, [soundSettings]);
@@ -1458,15 +1470,48 @@ const getFilteredForTitle = useMemo(() => {
     return Array.from(set);
   }, [filteredTradeData]);
 
-  // Build a stable key for a trade (for sound dedupe)
-  const tradeKey = (t) => {
+  const tradeTimeForKey = (t) =>
+    t.fetcher_trade_time ||
+    t.Fetcher_Trade_time ||
+    t.fetch_time ||
+    t.candel_time ||
+    t.candle_time ||
+    t.timestamp ||
+    t.created_at;
+
+  // Stable key for “already on screen” tracking (does not flip when unique_id arrives later)
+  const tradeSeenKey = (t) => {
+    const tm = tradeTimeForKey(t);
+    const pair = (t.pair || t.Pair || t.symbol || "").toString();
+    const action = (t.action || t.Action || "").toString();
+    if (tm) return `ts:${String(tm)}|${pair}|${action}`;
     const uid = t.unique_id || t.Unique_ID || t.uid;
     if (uid) return `uid:${String(uid)}`;
-    const tm = t.candel_time || t.candle_time || t.timestamp || t.created_at;
-    const pair = t.pair || t.Pair || t.symbol || "";
-    const action = t.action || t.Action || "";
-    return `ts:${String(tm)}|${pair}|${action}`;
+    return `fallback:${pair}|${action}`;
   };
+
+  const tradeAnnounceKeys = (t) => {
+    const keys = [];
+    const uid = t.unique_id || t.Unique_ID || t.uid;
+    if (uid) keys.push(`uid:${String(uid)}`);
+    const tm = tradeTimeForKey(t);
+    const pair = (t.pair || t.Pair || t.symbol || "").toString();
+    const action = (t.action || t.Action || "").toString();
+    if (tm || pair || action) keys.push(`ts:${String(tm)}|${pair}|${action}`);
+    const seen = tradeSeenKey(t);
+    if (seen && !keys.includes(seen)) keys.push(seen);
+    return keys.length ? keys : [tradeSeenKey(t)];
+  };
+
+  const isTradeAnnounced = (t) =>
+    tradeAnnounceKeys(t).some((k) => announcedMapRef.current.has(k));
+
+  const markTradeAnnounced = (t) => {
+    const now = Date.now();
+    tradeAnnounceKeys(t).forEach((k) => announcedMapRef.current.set(k, now));
+  };
+
+  const tradeKey = tradeSeenKey;
 
   // Subset: new direct running trades within N hours (based on candel_time and current filters)
   const newDirectRunning = useMemo(() => {
@@ -1518,13 +1563,80 @@ const getFilteredForTitle = useMemo(() => {
     try { localStorage.setItem(ANNOUNCED_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries))); } catch {}
   };
 
+  const tradeNotifyAllowed = useCallback(
+    (t) => {
+      const action = String(t.action || "").toUpperCase();
+      const signal = String(t.signalfrom || t.signalFrom || "");
+      if (soundSettings?.announceActions && soundSettings.announceActions[action] === false) return false;
+      if (
+        soundSettings?.announceSignals &&
+        Object.keys(soundSettings.announceSignals).length &&
+        soundSettings.announceSignals[signal] === false
+      ) {
+        return false;
+      }
+      return true;
+    },
+    [soundSettings]
+  );
+
+  const pushNewTradeToast = useCallback(
+    (t) => {
+      const announceKeys = new Set(tradeAnnounceKeys(t));
+      const id = ++newTradeToastIdRef.current;
+      const pair = (t.pair || t.Pair || t.symbol || "?").toString().toUpperCase();
+      const action = String(t.action || "").toUpperCase();
+      const signal = String(t.signalfrom || t.signalFrom || "").trim();
+      setNewTradeToasts((prev) => {
+        const dup = prev.some((x) =>
+          tradeAnnounceKeys(x.trade).some((k) => announceKeys.has(k))
+        );
+        if (dup) return prev;
+        return [...prev.slice(-5), { id, pair, action, signal, ts: Date.now(), trade: t }];
+      });
+      if (soundSettings?.browserNotify && typeof Notification !== "undefined") {
+        if (Notification.permission === "granted") {
+          try {
+            new Notification(`New ${action} · ${pair}`, {
+              body: signal || "Direct running trade",
+              tag: tradeKey(t),
+            });
+          } catch (_) {}
+        }
+      }
+    },
+    [soundSettings]
+  );
+
+  const dismissNewTradeToast = useCallback((id) => {
+    setNewTradeToasts((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
+  const openNewTradeFromToast = useCallback((toast) => {
+    setSelectedBox("Direct_Running_New");
+    setActiveSubReport("running");
+    dismissNewTradeToast(toast.id);
+    setTimeout(() => {
+      const section = document.getElementById("tableViewSection");
+      if (section) section.scrollIntoView({ behavior: "smooth" });
+    }, 0);
+  }, [dismissNewTradeToast]);
+
+  useEffect(() => {
+    if (!newTradeToasts.length) return;
+    const tick = setInterval(() => {
+      const now = Date.now();
+      setNewTradeToasts((prev) => prev.filter((x) => now - x.ts < 15000));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [newTradeToasts.length]);
+
   // Play one notification honoring settings
   const playNotification = (t) => {
     if (!soundSettings?.enabled) return;
+    if (!tradeNotifyAllowed(t)) return;
     const action = String(t.action || "").toUpperCase();
     const signal = String(t.signalfrom || "");
-    if (soundSettings.announceActions && soundSettings.announceActions[action] === false) return;
-    if (soundSettings.announceSignals && Object.keys(soundSettings.announceSignals).length && soundSettings.announceSignals[signal] === false) return;
     const volume = Math.max(0, Math.min(1, Number(soundSettings.volume || 0.7)));
     if (soundSettings.mode === "audio") {
       const url = soundSettings.audioUrls?.[action];
@@ -1541,21 +1653,32 @@ const getFilteredForTitle = useMemo(() => {
     } catch {}
   };
 
-  // Sound only for newly seen items in the subset; persist announced keys
+  // Notify only for trades that appear after the first snapshot (not everything on page load)
   const seenSubsetRef = useRef(new Set());
+  const newTradeNotifyReadyRef = useRef(false);
   useEffect(() => {
     const subset = Array.isArray(newDirectRunning) ? newDirectRunning : [];
-    const subsetKeys = new Set(subset.map(tradeKey));
-    const newOnes = subset.filter(t => !seenSubsetRef.current.has(tradeKey(t)));
+    const subsetKeys = new Set(subset.map(tradeSeenKey));
+    const newOnes = subset.filter((t) => !seenSubsetRef.current.has(tradeSeenKey(t)));
     seenSubsetRef.current = subsetKeys;
-    const toAnnounce = newOnes.filter(t => !announcedMapRef.current.has(tradeKey(t)));
+
+    if (!newTradeNotifyReadyRef.current) {
+      newTradeNotifyReadyRef.current = true;
+      return;
+    }
+
+    const toAnnounce = newOnes.filter((t) => !isTradeAnnounced(t));
     if (!toAnnounce.length) return;
-    toAnnounce.forEach(t => {
+    toAnnounce.forEach((t) => {
+      if (!tradeNotifyAllowed(t)) return;
+      markTradeAnnounced(t);
+      if (soundSettings?.visualNotify !== false) {
+        pushNewTradeToast(t);
+      }
       playNotification(t);
-      announcedMapRef.current.set(tradeKey(t), Date.now());
     });
     persistAnnounced();
-  }, [newDirectRunning, soundSettings]);
+  }, [newDirectRunning, soundSettings, tradeNotifyAllowed, pushNewTradeToast]);
 
 useEffect(() => {
   // 🔹 Total Investment Calculation
@@ -2147,7 +2270,15 @@ useEffect(() => {
   const DEFAULT_LIVE_FILTER = useMemo(() => ({ true: true, false: true }), []);
   const DEFAULT_CHART = useMemo(() => ({ layout: 3, showRSI: true, showVolume: true }), []);
   const DEFAULT_SOUND = useMemo(() => ({
-    enabled: false, volume: 0.7, mode: "tts", announceActions: { BUY: true, SELL: true }, announceSignals: {}, audioUrls: { BUY: "", SELL: "" }, newTradeWindowHours: 4,
+    enabled: false,
+    volume: 0.7,
+    mode: "tts",
+    announceActions: { BUY: true, SELL: true },
+    announceSignals: {},
+    audioUrls: { BUY: "", SELL: "" },
+    newTradeWindowHours: 4,
+    visualNotify: true,
+    browserNotify: false,
   }), []);
 
   // Persist all settings to localStorage only
@@ -2340,6 +2471,49 @@ useEffect(() => {
   return (
       <AuthContext.Provider value={authContextValue}>
       <div className="flex flex-col min-h-screen">
+        {newTradeToasts.length > 0 && (
+          <div
+            className="fixed top-14 right-3 z-[200] flex flex-col gap-2 max-w-sm w-full sm:w-96 pointer-events-none"
+            aria-live="polite"
+          >
+            {newTradeToasts.map((toast) => (
+              <div
+                key={toast.id}
+                className="pointer-events-auto flex items-start gap-3 rounded-xl border border-emerald-400/60 bg-emerald-950/95 text-white shadow-lg px-4 py-3 animate-pulse"
+                role="status"
+              >
+                <span className="text-xl shrink-0" aria-hidden>
+                  🔔
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm">
+                    New trade · {toast.pair}{" "}
+                    <span className={toast.action === "SELL" ? "text-red-300" : "text-emerald-300"}>{toast.action}</span>
+                  </p>
+                  {toast.signal ? (
+                    <p className="text-xs text-emerald-100/90 truncate">Signal: {toast.signal}</p>
+                  ) : null}
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      className="text-xs font-semibold px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500"
+                      onClick={() => openNewTradeFromToast(toast)}
+                    >
+                      View
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20"
+                      onClick={() => dismissNewTradeToast(toast.id)}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
         <header className="flex-shrink-0 h-12 flex items-center justify-end gap-2 px-4 border-b border-gray-200 dark:border-gray-700 shadow-sm bg-[#f5f6fa] dark:bg-black ">
           <button
             onClick={() => setIsSoundOpen(true)}
@@ -3399,7 +3573,7 @@ useEffect(() => {
                   {/* ✅ Machine Filter with Mode Toggle */}
                   {/* --- Render metrics/cards here as before --- */}
                   {/* ✅ TableView always rendered below dashboard, default to Total Profit if nothing selected */}
-                  <div className="mt-6">
+                  <div className="mt-6" id="tableViewSection">
                     {selectedBox && (() => {
                       const normalizedKey = selectedBox?.trim().replace(/\s+/g, "_");
                       const data = normalizedKey === "Direct_Running_New" ? newDirectRunning : getFilteredForTitle[normalizedKey];
@@ -3438,6 +3612,13 @@ useEffect(() => {
               settings={soundSettings}
               onChange={setSoundSettings}
               availableSignals={availableSignals}
+              onTestVisual={() =>
+                pushNewTradeToast({
+                  pair: "DEMO",
+                  action: "BUY",
+                  signalfrom: "preview",
+                })
+              }
             />
           </>
         } />

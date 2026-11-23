@@ -8,6 +8,8 @@ const DEFAULT_SETTINGS = {
   announceSignals: {}, // will be filled from availableSignals
   audioUrls: { BUY: "", SELL: "" },
   newTradeWindowHours: 4,
+  visualNotify: true,
+  browserNotify: false,
 };
 
 export default function SoundSettings({ isOpen, onClose, settings, onChange, availableSignals, onTestVisual }) {
@@ -170,13 +172,37 @@ export default function SoundSettings({ isOpen, onClose, settings, onChange, ava
         </div>
 
         <div className="p-4 space-y-4">
-          <div className="flex items-center gap-3">
-            <label className="text-sm font-semibold text-gray-900 dark:text-gray-100">Enable sound</label>
-            <input
-              type="checkbox"
-              checked={!!localSettings.enabled}
-              onChange={(e) => setLocalSettings((s) => ({ ...s, enabled: e.target.checked }))}
-            />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+              <input
+                type="checkbox"
+                checked={!!localSettings.enabled}
+                onChange={(e) => setLocalSettings((s) => ({ ...s, enabled: e.target.checked }))}
+              />
+              Enable sound / voice
+            </label>
+            <label className="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-gray-100">
+              <input
+                type="checkbox"
+                checked={localSettings.visualNotify !== false}
+                onChange={(e) => setLocalSettings((s) => ({ ...s, visualNotify: e.target.checked }))}
+              />
+              On-screen popup (new trades)
+            </label>
+            <label className="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+              <input
+                type="checkbox"
+                checked={!!localSettings.browserNotify}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setLocalSettings((s) => ({ ...s, browserNotify: on }));
+                  if (on && typeof Notification !== "undefined" && Notification.permission === "default") {
+                    Notification.requestPermission().catch(() => {});
+                  }
+                }}
+              />
+              Browser notifications
+            </label>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
